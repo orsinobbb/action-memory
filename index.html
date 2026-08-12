@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f6f5f0" />
+    <meta name="description" content="本機優先、手機優先的代辦記憶庫" />
+    <title>拾記｜代辦記憶庫</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="today-label"></p>
+          <h1 id="view-title">今日戰情</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button" id="search-button" type="button" aria-label="搜尋">⌕</button>
+          <button class="icon-button" id="settings-button" type="button" aria-label="設定">•••</button>
+        </div>
+      </header>
+
+      <main id="app-main" tabindex="-1">
+        <section class="view is-active" id="dashboard-view" data-view="dashboard" aria-labelledby="view-title">
+          <div class="hero-copy">
+            <p id="greeting">先處理真正需要注意的事。</p>
+            <span class="sync-state"><i></i> 資料僅儲存在這台裝置</span>
+          </div>
+
+          <div class="stat-grid" id="stat-grid" aria-label="今日摘要"></div>
+
+          <section class="panel focus-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">現在</p>
+                <h2>需要注意</h2>
+              </div>
+              <span class="count-badge" id="attention-count">0</span>
+            </div>
+            <div class="task-list" id="attention-list"></div>
+          </section>
+
+          <button class="inbox-callout" id="review-inbox-button" type="button">
+            <span>
+              <small>稍後整理</small>
+              <strong id="inbox-summary">收件匣是空的</strong>
+            </span>
+            <span aria-hidden="true">→</span>
+          </button>
+
+          <section class="panel upcoming-panel">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">接下來 7 天</p>
+                <h2>即將到來</h2>
+              </div>
+            </div>
+            <div class="task-list" id="upcoming-list"></div>
+          </section>
+        </section>
+
+        <section class="view" id="memory-view" data-view="memory">
+          <div class="search-wrap">
+            <span aria-hidden="true">⌕</span>
+            <input id="task-search" type="search" placeholder="搜尋標題、內容、標籤…" autocomplete="off" />
+          </div>
+          <div class="filter-row" id="filter-row" role="group" aria-label="任務篩選">
+            <button class="filter-chip is-active" data-filter="open" type="button">進行中</button>
+            <button class="filter-chip" data-filter="inbox" type="button">收件匣</button>
+            <button class="filter-chip" data-filter="waiting" type="button">等待</button>
+            <button class="filter-chip" data-filter="done" type="button">已完成</button>
+            <button class="filter-chip" data-filter="all" type="button">全部</button>
+          </div>
+          <div class="section-heading list-heading">
+            <div>
+              <p class="eyebrow" id="memory-kicker">行動記憶</p>
+              <h2 id="memory-heading">進行中的事項</h2>
+            </div>
+            <span class="count-badge" id="memory-count">0</span>
+          </div>
+          <div class="task-list" id="memory-list"></div>
+        </section>
+
+        <section class="view" id="timeline-view" data-view="timeline">
+          <div class="timeline-intro panel">
+            <p class="eyebrow">不可覆寫的演化紀錄</p>
+            <h2>每一步，都找得到原因</h2>
+            <p>建立、修改、延期、等待、完成與匯入都會留在這裡。</p>
+          </div>
+          <div class="timeline" id="timeline-list"></div>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="主要導覽">
+        <button class="nav-item is-active" data-target="dashboard" type="button">
+          <span aria-hidden="true">◫</span><small>戰情</small>
+        </button>
+        <button class="nav-item" data-target="memory" type="button">
+          <span aria-hidden="true">◉</span><small>記憶</small>
+        </button>
+        <button class="nav-item" data-target="timeline" type="button">
+          <span aria-hidden="true">↗</span><small>時間軸</small>
+        </button>
+      </nav>
+
+      <button class="fab" id="add-task-button" type="button" aria-label="記一件事">
+        <span>＋</span><strong>記一件事</strong>
+      </button>
+    </div>
+
+    <dialog class="sheet quick-capture" id="capture-dialog">
+      <form method="dialog" id="capture-form">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-header">
+          <div>
+            <p class="eyebrow">先記下，再整理</p>
+            <h2>想到什麼？</h2>
+          </div>
+          <button class="icon-button close-dialog" value="cancel" aria-label="關閉" type="submit">×</button>
+        </div>
+        <label class="sr-only" for="capture-title">代辦內容</label>
+        <textarea id="capture-title" rows="3" maxlength="180" placeholder="例如：週五前確認月報最後兩筆數字" required></textarea>
+        <div class="quick-date-row">
+          <button type="button" class="quick-date" data-date="today">今天</button>
+          <button type="button" class="quick-date" data-date="tomorrow">明天</button>
+          <button type="button" class="quick-date" data-date="waiting">等待他人</button>
+          <label class="quick-date date-picker">選日期<input id="capture-date" type="date" /></label>
+        </div>
+        <p class="capture-hint" id="capture-hint">未指定日期，會先放進收件匣。</p>
+        <button class="primary-button" id="capture-submit" value="default" type="submit">存進記憶庫</button>
+      </form>
+    </dialog>
+
+    <dialog class="sheet task-sheet" id="task-dialog">
+      <form id="task-form">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-header sticky">
+          <button class="text-button" id="close-task-button" type="button">取消</button>
+          <span class="save-state" id="save-state">編輯任務</span>
+          <button class="text-button accent" type="submit">儲存</button>
+        </div>
+        <input id="task-id" type="hidden" />
+        <label class="field title-field">
+          <span>標題</span>
+          <textarea id="task-title" rows="2" maxlength="180" required></textarea>
+        </label>
+        <div class="form-grid two-col">
+          <label class="field">
+            <span>狀態</span>
+            <select id="task-status">
+              <option value="inbox">收件匣</option>
+              <option value="planned">已規劃</option>
+              <option value="active">進行中</option>
+              <option value="waiting">等待中</option>
+              <option value="done">已完成</option>
+              <option value="note">備忘</option>
+              <option value="archived">已封存</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>重要性</span>
+            <select id="task-importance">
+              <option value="unset">未判定</option>
+              <option value="focus">焦點</option>
+              <option value="normal">一般</option>
+              <option value="low">低</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>明確的下一步</span>
+          <input id="task-next-action" maxlength="180" placeholder="下一個可以直接執行的動作" />
+        </label>
+        <label class="field">
+          <span>補充內容</span>
+          <textarea id="task-note" rows="4" placeholder="背景、連結、需要記住的細節"></textarea>
+        </label>
+        <div class="form-grid two-col">
+          <label class="field">
+            <span>截止時間</span>
+            <input id="task-due-at" type="datetime-local" />
+          </label>
+          <label class="field">
+            <span>再次提醒</span>
+            <input id="task-remind-at" type="datetime-local" />
+          </label>
+        </div>
+        <label class="field" id="waiting-field">
+          <span>等待對象／條件</span>
+          <input id="task-waiting-for" maxlength="120" placeholder="例如：王先生回覆報價" />
+        </label>
+        <label class="field">
+          <span>標籤</span>
+          <input id="task-tags" maxlength="180" placeholder="用逗號分隔，例如：工作, 月報" />
+        </label>
+
+        <section class="detail-section" id="relation-section">
+          <div class="section-heading compact">
+            <div><p class="eyebrow">動態節點</p><h3>關聯</h3></div>
+          </div>
+          <div id="relation-list" class="relation-list"></div>
+          <div class="relation-editor">
+            <select id="relation-type" aria-label="關係類型">
+              <option value="related_to">相關</option>
+              <option value="blocks">會阻擋</option>
+              <option value="parent_of">父任務</option>
+              <option value="waiting_for">等待此項</option>
+              <option value="derived_from">衍生自</option>
+            </select>
+            <select id="relation-target" aria-label="關聯任務"></select>
+            <button class="secondary-button" id="add-relation-button" type="button">加入</button>
+          </div>
+        </section>
+
+        <section class="detail-section">
+          <div class="section-heading compact">
+            <div><p class="eyebrow">這件事如何演化</p><h3>時間軸</h3></div>
+          </div>
+          <div class="timeline compact-timeline" id="task-timeline"></div>
+        </section>
+
+        <div class="task-actions">
+          <button class="secondary-button" id="calendar-button" type="button">加入行事曆</button>
+          <button class="danger-button" id="delete-task-button" type="button">刪除任務</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="settings-dialog">
+      <div class="modal-card">
+        <div class="sheet-header">
+          <div><p class="eyebrow">資料主權</p><h2>設定與備份</h2></div>
+          <button class="icon-button" id="close-settings-button" aria-label="關閉" type="button">×</button>
+        </div>
+        <section class="settings-section">
+          <h3>本機資料</h3>
+          <p>資料保存在此瀏覽器的 IndexedDB。清除網站資料前，請先匯出備份。</p>
+          <div class="button-stack">
+            <button class="secondary-button" id="export-json-button" type="button">匯出完整 JSON 備份</button>
+            <button class="secondary-button" id="export-csv-button" type="button">匯出任務 CSV</button>
+            <label class="secondary-button file-button">匯入 JSON 備份<input id="import-json-input" type="file" accept="application/json,.json" /></label>
+          </div>
+          <div class="import-preview" id="import-preview" hidden></div>
+        </section>
+        <section class="settings-section">
+          <h3>提醒</h3>
+          <p id="notification-status">瀏覽器通知尚未啟用。背景通知仍受裝置限制。</p>
+          <button class="secondary-button" id="notification-button" type="button">啟用瀏覽器通知</button>
+        </section>
+        <section class="settings-section">
+          <h3>安裝到手機</h3>
+          <p>安裝為 PWA 後可以全螢幕使用；iPhone 請用 Safari 的「加入主畫面」。</p>
+          <button class="secondary-button" id="install-button" type="button" hidden>安裝拾記</button>
+        </section>
+        <section class="settings-section muted-section">
+          <h3>AI 協助整理</h3>
+          <p>預留二階 Azure OpenAI 後端代理。API 金鑰不會放進這個純前端網站。</p>
+        </section>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <template id="empty-template">
+      <div class="empty-state"><span>✓</span><p></p></div>
+    </template>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

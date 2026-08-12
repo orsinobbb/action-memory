@@ -1,0 +1,36 @@
+# 拾記｜代辦記憶庫
+
+手機優先、本機優先的純前端代辦記憶庫。所有任務、關聯與事件都儲存在瀏覽器 IndexedDB，不需要帳號或後端。
+
+## 已實作
+
+- 5 秒快速記錄與收件匣
+- 今日戰情：逾期、今天、等待、未來 7 天
+- 任務狀態、下一步、提醒、標籤與動態關聯
+- 不可覆寫的事件時間軸
+- 搜尋與篩選
+- JSON 校驗備份／合併／完整還原
+- CSV 與 `.ics` 行事曆匯出
+- PWA 離線快取與瀏覽器通知
+- GitHub Pages 自動部署工作流程
+
+## 本機執行
+
+```powershell
+npm.cmd test
+npm.cmd run serve
+```
+
+開啟 `http://localhost:8080/`。請勿用 `file://` 直接開啟，IndexedDB、PWA 與 Service Worker 應透過 HTTP 測試。
+
+## GitHub Pages
+
+推送到 `main` 後，`.github/workflows/deploy-pages.yml` 會先執行測試，再部署靜態網站。儲存庫 Settings → Pages → Source 應設定為 **GitHub Actions**。
+
+## 隱私與提醒限制
+
+- 資料預設只留在目前瀏覽器；清除網站資料前請先匯出 JSON 備份。
+- 瀏覽器／PWA 關閉後的背景通知受作業系統限制；重要提醒請匯出到手機行事曆。
+- Azure OpenAI 僅列為二階後端代理，不會把金鑰或任務內容放進目前純前端版本。
+
+完整設計請見 [PRODUCT_DESIGN.md](./PRODUCT_DESIGN.md)。

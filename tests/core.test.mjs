@@ -1,0 +1,95 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  computeDashboard,
+  createBackup,
+  createTask,
+  diffTask,
+  filterTasks,
+  previewImport,
+  tasksToCsv,
+  validateBackup
+} from "../src/core.js";
+
+const now = new Date("2026-08-12T10:00:00+08:00");
+
+function task(overrides = {}) {
+  return {
+    id: overrides.id ?? "task-1",
+    title: "測試事項",
+    note: "",
+    nextAction: "",
+    status: "planned",
+    importance: "unset",
+    tags: [],
+    createdAt: "2026-08-10T00:00:00.000Z",
+    updatedAt: "2026-08-10T00:00:00.000Z",
+    version: 1,
+    ...overrides
+  };
+}
+
+test("快速建立無日期事項會進入收件匣", () => {
+  const created = createTask({ title: "  記得回信  ", now, id: "task-fixed" });
+  assert.equal(created.title, "記得回信");
+  assert.equal(created.status, "inbox");
+  assert.equal(created.version, 1);
+});
+
+test("有日期的快速事項會進入已規劃", () => {
+  const created = createTask({ title: "交月報", dueAt: "2026-08-13T10:00:00.000Z", now, id: "task-fixed" });
+  assert.equal(created.status, "planned");
+});
+
+test("戰情正確區分逾期、今天、等待、收件匣與未來七天", () => {
+  const tasks = [
+    task({ id: "overdue", dueAt: "2026-08-12T01:00:00.000Z" }),
+    task({ id: "today", dueAt: "2026-08-12T12:00:00.000Z" }),
+    task({ id: "waiting", status: "waiting" }),
+    task({ id: "inbox", status: "inbox" }),
+    task({ id: "upcoming", dueAt: "2026-08-15T10:00:00.000Z" }),
+    task({ id: "done", status: "done", dueAt: "2026-08-11T10:00:00.000Z" })
+  ];
+  const result = computeDashboard(tasks, now);
+  assert.deepEqual(result.overdue.map((item) => item.id), ["overdue"]);
+  assert.deepEqual(result.today.map((item) => item.id), ["today"]);
+  assert.deepEqual(result.waiting.map((item) => item.id), ["waiting"]);
+  assert.deepEqual(result.inbox.map((item) => item.id), ["inbox"]);
+  assert.deepEqual(result.upcoming.map((item) => item.id), ["upcoming"]);
+});
+
+test("搜尋涵蓋標題、內容、下一步與標籤", () => {
+  const tasks = [
+    task({ id: "a", title: "月報", tags: ["財務"] }),
+    task({ id: "b", title: "會議", nextAction: "確認 Orsino 時間" })
+  ];
+  assert.deepEqual(filterTasks(tasks, "all", "財務").map((item) => item.id), ["a"]);
+  assert.deepEqual(filterTasks(tasks, "all", "orsino").map((item) => item.id), ["b"]);
+});
+
+test("事件差異不包含 updatedAt 與 version", () => {
+  const before = task();
+  const after = { ...before, title: "新標題", updatedAt: "2026-08-12T02:00:00.000Z", version: 2 };
+  assert.deepEqual(diffTask(before, after), { title: { before: "測試事項", after: "新標題" } });
+});
+
+test("備份可校驗且內容被修改後會拒絕", async () => {
+  const backup = await createBackup({ tasks: [task()], relations: [], events: [] }, now);
+  assert.deepEqual(await validateBackup(backup), { valid: true });
+  backup.payload.tasks[0].title = "被修改";
+  const invalid = await validateBackup(backup);
+  assert.equal(invalid.valid, false);
+});
+
+test("匯入預覽區分新增、較新與不變", () => {
+  const current = { tasks: [task({ id: "same", version: 2 }), task({ id: "older", version: 1 })] };
+  const incoming = [task({ id: "same", version: 2 }), task({ id: "older", version: 3 }), task({ id: "new", version: 1 })];
+  assert.deepEqual(previewImport(current, { tasks: incoming }), { added: 1, newer: 1, unchanged: 1, incomingTotal: 3 });
+});
+
+test("CSV 正確處理逗號、引號與 UTF-8 BOM", () => {
+  const csv = tasksToCsv([task({ title: '回覆「A, B」', tags: ["工作", "重要"] })]);
+  assert.ok(csv.startsWith("\uFEFFid,title"));
+  assert.ok(csv.includes('"回覆「A, B」"'));
+  assert.ok(csv.includes("工作|重要"));
+});

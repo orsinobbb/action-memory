@@ -1,0 +1,19 @@
+{
+  "name": "拾記｜代辦記憶庫",
+  "short_name": "拾記",
+  "description": "本機優先、手機優先的代辦記憶庫",
+  "lang": "zh-Hant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f5f0",
+  "theme_color": "#f6f5f0",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
