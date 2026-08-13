@@ -79,6 +79,19 @@ export async function updateTask(task, event) {
   await transactionDone(transaction);
 }
 
+export async function completeRecurringTask(task, completionEvent, nextTask, nextEvent, relation) {
+  const db = await openDatabase();
+  const transaction = db.transaction(["tasks", "relations", "events"], "readwrite");
+  const taskStore = transaction.objectStore("tasks");
+  const eventStore = transaction.objectStore("events");
+  taskStore.put(task);
+  taskStore.add(nextTask);
+  transaction.objectStore("relations").add(relation);
+  eventStore.add(completionEvent);
+  eventStore.add(nextEvent);
+  await transactionDone(transaction);
+}
+
 export async function removeTask(taskId, event) {
   const db = await openDatabase();
   const existingRelations = await getAll("relations");

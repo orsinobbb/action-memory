@@ -189,6 +189,11 @@ main { padding: 0 16px; }
   border-radius: 50%;
 }
 .task-card.is-done .complete-button::before { content: "✓"; display: grid; place-items: center; border-color: var(--green-2); background: var(--green-2); color: white; font-size: 0.75rem; }
+.task-card.is-deleted { opacity: 0.72; }
+.task-card.is-deleted .task-card-title { text-decoration: line-through; }
+.complete-button.is-restore { display: grid; place-items: center; border-color: var(--green-2); color: var(--green-2); font-weight: 800; }
+.complete-button.is-restore::before { content: none; }
+.task-card.is-done .complete-button.is-restore::before { content: none; display: none; }
 .task-card.is-done .task-card-title { text-decoration: line-through; color: var(--muted); }
 .task-card-body { min-width: 0; padding-top: 2px; }
 .task-card-title { margin: 0; font-size: 0.96rem; font-weight: 850; overflow-wrap: anywhere; }
@@ -360,6 +365,10 @@ dialog::backdrop { background: rgba(13, 28, 24, 0.46); backdrop-filter: blur(3px
 .field textarea { resize: vertical; line-height: 1.5; }
 .title-field textarea { font-size: 1.16rem; font-weight: 800; }
 .form-grid { display: grid; gap: 10px; }
+.quick-schedule { display: flex; align-items: center; gap: 8px; margin: 8px 0 16px; overflow-x: auto; }
+.quick-schedule > span { margin-right: auto; color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+.quick-schedule .quick-date { flex: 0 0 auto; }
+.field small { color: var(--muted); font-size: 0.75rem; line-height: 1.5; }
 .two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .detail-section { margin: 22px 0; padding-top: 18px; border-top: 1px solid var(--line); }
 .relation-list { display: grid; gap: 7px; margin-bottom: 10px; }

@@ -3,10 +3,14 @@ import assert from "node:assert/strict";
 import {
   computeDashboard,
   createBackup,
+  createNextOccurrence,
   createTask,
   diffTask,
   filterTasks,
+  moveTaskToTrash,
   previewImport,
+  rescheduleTask,
+  restoreTaskFromTrash,
   tasksToCsv,
   validateBackup
 } from "../src/core.js";
@@ -92,4 +96,47 @@ test("CSV 正確處理逗號、引號與 UTF-8 BOM", () => {
   assert.ok(csv.startsWith("\uFEFFid,title"));
   assert.ok(csv.includes('"回覆「A, B」"'));
   assert.ok(csv.includes("工作|重要"));
+});
+
+test("週期任務完成後建立下一次並保留系列關聯", () => {
+  const current = task({
+    id: "monthly-1",
+    recurrence: "monthly",
+    dueAt: "2026-01-31T10:00:00.000Z",
+    remindAt: "2026-01-31T09:00:00.000Z",
+    tags: ["例行"]
+  });
+  const next = createNextOccurrence(current, now, "monthly-2");
+  assert.equal(next.id, "monthly-2");
+  assert.equal(next.dueAt, "2026-02-28T10:00:00.000Z");
+  assert.equal(next.remindAt, "2026-02-28T09:00:00.000Z");
+  assert.equal(next.seriesId, "monthly-1");
+  assert.equal(next.previousOccurrenceId, "monthly-1");
+  assert.equal(next.status, "planned");
+});
+
+test("快速排程會將收件匣轉為已規劃", () => {
+  const current = task({ status: "inbox", version: 2 });
+  const next = rescheduleTask(current, "2026-08-13T10:00:00.000Z", now);
+  assert.equal(next.status, "planned");
+  assert.equal(next.version, 3);
+  assert.equal(next.dueAt, "2026-08-13T10:00:00.000Z");
+});
+
+test("已完成事項重新排程時會回到已規劃", () => {
+  const current = task({ status: "done", completedAt: "2026-08-12T01:00:00.000Z" });
+  const next = rescheduleTask(current, "2026-08-15T10:00:00.000Z", now);
+  assert.equal(next.status, "planned");
+  assert.equal(next.completedAt, undefined);
+});
+
+test("回收桶任務不進入戰情且可還原原狀態", () => {
+  const current = task({ status: "waiting", dueAt: "2026-08-12T01:00:00.000Z" });
+  const deleted = moveTaskToTrash(current, now);
+  assert.equal(computeDashboard([deleted], now).attention.length, 0);
+  assert.deepEqual(filterTasks([deleted], "deleted").map((item) => item.id), [current.id]);
+  assert.equal(filterTasks([deleted], "all").length, 0);
+  const restored = restoreTaskFromTrash(deleted, now);
+  assert.equal(restored.status, "waiting");
+  assert.equal(restored.deletedAt, undefined);
 });

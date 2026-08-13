@@ -73,6 +73,7 @@
             <button class="filter-chip" data-filter="waiting" type="button">等待</button>
             <button class="filter-chip" data-filter="done" type="button">已完成</button>
             <button class="filter-chip" data-filter="all" type="button">全部</button>
+            <button class="filter-chip" data-filter="deleted" type="button">回收桶</button>
           </div>
           <div class="section-heading list-heading">
             <div>
@@ -170,6 +171,22 @@
             </select>
           </label>
         </div>
+        <div class="quick-schedule" role="group" aria-label="快速排程">
+          <span>快速排程</span>
+          <button class="quick-date" data-postpone="0" data-label="今天" type="button">今天</button>
+          <button class="quick-date" data-postpone="1" data-label="明天" type="button">明天</button>
+          <button class="quick-date" data-postpone="7" data-label="下週" type="button">下週</button>
+        </div>
+        <label class="field">
+          <span>週期</span>
+          <select id="task-recurrence">
+            <option value="none">不重複</option>
+            <option value="daily">每天</option>
+            <option value="weekly">每週</option>
+            <option value="monthly">每月</option>
+          </select>
+          <small>完成後會自動建立下一次，並保留前後關聯。</small>
+        </label>
         <label class="field">
           <span>明確的下一步</span>
           <input id="task-next-action" maxlength="180" placeholder="下一個可以直接執行的動作" />
@@ -224,7 +241,7 @@
 
         <div class="task-actions">
           <button class="secondary-button" id="calendar-button" type="button">加入行事曆</button>
-          <button class="danger-button" id="delete-task-button" type="button">刪除任務</button>
+          <button class="danger-button" id="delete-task-button" type="button">移到回收桶</button>
         </div>
       </form>
     </dialog>

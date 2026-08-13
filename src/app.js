@@ -1,9 +1,11 @@
 import {
   RELATION_LABELS,
+  RECURRENCE_LABELS,
   STATUS_LABELS,
   computeDashboard,
   createBackup,
   createId,
+  createNextOccurrence,
   createTask,
   dateKey,
   describeTime,
@@ -11,7 +13,10 @@ import {
   filterTasks,
   fromDateTimeLocal,
   makeEvent,
+  moveTaskToTrash,
   previewImport,
+  rescheduleTask,
+  restoreTaskFromTrash,
   sortTasks,
   summarizeTaskChange,
   tasksToCsv,
@@ -22,10 +27,10 @@ import {
   addEvent,
   addRelation,
   addTask,
+  completeRecurringTask,
   getAllData,
   importData,
   removeRelation,
-  removeTask,
   updateTask
 } from "./db.js";
 
@@ -129,7 +134,8 @@ function renderMemory() {
     inbox: "尚未整理的記憶",
     waiting: "正在等待的事項",
     done: "已完成的事項",
-    all: "所有記憶"
+    all: "所有記憶",
+    deleted: "可還原的事項"
   };
   const filtered = sortTasks(filterTasks(state.tasks, state.filter, state.query));
   $("#memory-heading").textContent = state.query ? `搜尋「${state.query}」` : headings[state.filter];
@@ -148,14 +154,16 @@ function renderTaskList(container, tasks, emptyMessage, showAll = false) {
 }
 
 function createTaskCard(task) {
-  const card = element("article", `task-card${task.status === "done" ? " is-done" : ""}`);
+  const card = element("article", `task-card${task.status === "done" ? " is-done" : ""}${task.deletedAt ? " is-deleted" : ""}`);
   card.dataset.taskId = task.id;
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   const complete = element("button", "complete-button");
   complete.type = "button";
-  complete.dataset.action = "toggle-complete";
-  complete.setAttribute("aria-label", task.status === "done" ? "重新開啟" : "標示完成");
+  complete.dataset.action = task.deletedAt ? "restore" : "toggle-complete";
+  complete.classList.toggle("is-restore", Boolean(task.deletedAt));
+  if (task.deletedAt) complete.textContent = "↶";
+  complete.setAttribute("aria-label", task.deletedAt ? "還原任務" : task.status === "done" ? "重新開啟" : "標示完成");
 
   const body = element("div", "task-card-body");
   body.append(element("p", "task-card-title", task.title));
@@ -164,21 +172,29 @@ function createTaskCard(task) {
   const time = describeTime(task);
   meta.append(element("span", `meta-pill ${time.tone === "normal" ? "" : time.tone}`.trim(), time.text));
   if (task.importance === "focus") meta.append(element("span", "meta-pill", "焦點"));
+  if (task.recurrence && task.recurrence !== "none") meta.append(element("span", "meta-pill", RECURRENCE_LABELS[task.recurrence]));
   if (task.tags?.[0]) meta.append(element("span", "meta-pill", `#${task.tags[0]}`));
   body.append(meta);
   card.append(complete, body, element("span", "task-chevron", "›"));
 
   card.addEventListener("click", async (event) => {
+    if (event.target.closest('[data-action="restore"]')) {
+      event.stopPropagation();
+      await restoreDeletedTask(task);
+      return;
+    }
     if (event.target.closest('[data-action="toggle-complete"]')) {
       event.stopPropagation();
       await toggleComplete(task);
       return;
     }
+    if (task.deletedAt) return showToast("請先還原，再繼續編輯");
     openTaskDialog(task.id);
   });
   card.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
+      if (task.deletedAt) return showToast("請先還原，再繼續編輯");
       openTaskDialog(task.id);
     }
   });
@@ -195,10 +211,42 @@ async function toggleComplete(task) {
     updatedAt: now.toISOString(),
     version: (task.version === null || task.version === undefined ? 1 : task.version) + 1
   };
-  const change = summarizeTaskChange(task, next);
-  await updateTask(next, makeEvent({ entityId: task.id, ...change, patch: diffTask(task, next), now }));
-  showToast(nextStatus === "done" ? "已完成，演化紀錄已保存" : "任務已重新開啟");
+  const spawned = await saveTaskChange(task, next, now);
+  showToast(spawned
+    ? `已完成，下一次已排到 ${dateKey(spawned.dueAt)}`
+    : nextStatus === "done" ? "已完成，演化紀錄已保存" : "任務已重新開啟");
   await refresh();
+}
+
+async function saveTaskChange(previous, next, now = new Date()) {
+  const patch = diffTask(previous, next);
+  const change = summarizeTaskChange(previous, next);
+  const eventRecord = makeEvent({ entityId: next.id, ...change, patch, now });
+  if (previous.status !== "done" && next.status === "done" && (next.recurrence || "none") !== "none") {
+    const nextOccurrence = createNextOccurrence(next, now);
+    if (!nextOccurrence) {
+      await updateTask(next, eventRecord);
+      return null;
+    }
+    const relation = {
+      id: createId("relation"),
+      fromId: nextOccurrence.id,
+      toId: next.id,
+      type: "derived_from",
+      createdAt: now.toISOString()
+    };
+    const nextEvent = makeEvent({
+      entityId: nextOccurrence.id,
+      type: "recurrence_created",
+      actor: "system",
+      summary: `依「${next.title}」建立下一次週期任務`,
+      now
+    });
+    await completeRecurringTask(next, eventRecord, nextOccurrence, nextEvent, relation);
+    return nextOccurrence;
+  }
+  await updateTask(next, eventRecord);
+  return null;
 }
 
 function renderTimeline(container, events) {
@@ -283,6 +331,7 @@ function openTaskDialog(taskId) {
   $("#task-due-at").value = toDateTimeLocal(task.dueAt);
   $("#task-remind-at").value = toDateTimeLocal(task.remindAt);
   $("#task-waiting-for").value = task.waitingFor || "";
+  $("#task-recurrence").value = task.recurrence || "none";
   $("#task-tags").value = (task.tags || []).join(", ");
   $("#save-state").textContent = `版本 ${task.version === null || task.version === undefined ? 1 : task.version}`;
   renderTaskRelations(task);
@@ -303,6 +352,7 @@ function readTaskForm(previous) {
     dueAt: fromDateTimeLocal($("#task-due-at").value),
     remindAt: fromDateTimeLocal($("#task-remind-at").value),
     waitingFor: $("#task-waiting-for").value.trim() || undefined,
+    recurrence: $("#task-recurrence").value,
     tags: $("#task-tags").value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean),
     completedAt: status === "done" ? (previous.completedAt || now.toISOString()) : undefined,
     updatedAt: now.toISOString(),
@@ -321,10 +371,9 @@ async function submitTask(event) {
     $("#task-dialog").close();
     return;
   }
-  const change = summarizeTaskChange(previous, next);
-  await updateTask(next, makeEvent({ entityId: next.id, ...change, patch }));
+  const spawned = await saveTaskChange(previous, next);
   $("#task-dialog").close();
-  showToast("變更與演化紀錄已儲存");
+  showToast(spawned ? `變更已儲存，下一次排到 ${dateKey(spawned.dueAt)}` : "變更與演化紀錄已儲存");
   await refresh();
 }
 
@@ -351,7 +400,7 @@ function renderTaskRelations(task) {
   const targetSelect = $("#relation-target");
   targetSelect.replaceChildren(element("option", "", "選擇另一件事"));
   targetSelect.firstChild.value = "";
-  state.tasks.filter((item) => item.id !== task.id && item.status !== "archived").forEach((item) => {
+  state.tasks.filter((item) => item.id !== task.id && item.status !== "archived" && !item.deletedAt).forEach((item) => {
     const option = element("option", "", item.title);
     option.value = item.id;
     targetSelect.append(option);
@@ -387,11 +436,41 @@ async function deleteRelation(relation, currentTask) {
 
 async function deleteCurrentTask() {
   const task = state.tasks.find((item) => item.id === $("#task-id").value);
-  if (!task || !confirm(`確定刪除「${task.title}」？演化時間軸仍會保留刪除紀錄。`)) return;
-  const eventRecord = makeEvent({ entityId: task.id, type: "deleted", summary: `刪除「${task.title}」` });
-  await removeTask(task.id, eventRecord);
+  if (!task || !confirm(`將「${task.title}」移到回收桶？之後仍可還原。`)) return;
+  const now = new Date();
+  const next = moveTaskToTrash(task, now);
+  const change = summarizeTaskChange(task, next);
+  await updateTask(next, makeEvent({ entityId: task.id, ...change, patch: diffTask(task, next), now }));
   $("#task-dialog").close();
-  showToast("任務已刪除，刪除紀錄已保留");
+  showToast("已移到回收桶，可隨時還原");
+  await refresh();
+}
+
+async function restoreDeletedTask(task) {
+  const now = new Date();
+  const next = restoreTaskFromTrash(task, now);
+  const change = summarizeTaskChange(task, next);
+  await updateTask(next, makeEvent({ entityId: task.id, ...change, patch: diffTask(task, next), now }));
+  showToast("任務已還原");
+  await refresh();
+}
+
+async function postponeCurrentTask(offset, label) {
+  const task = state.tasks.find((item) => item.id === $("#task-id").value);
+  if (!task) return;
+  const now = new Date();
+  const draft = readTaskForm(task);
+  if (!draft.title) return showToast("標題不能空白");
+  const next = rescheduleTask({ ...draft, version: task.version }, localDateTimeForDay(offset), now);
+  await updateTask(next, makeEvent({
+    entityId: task.id,
+    type: "postponed",
+    summary: `將「${task.title}」排到${label}`,
+    patch: diffTask(task, next),
+    now
+  }));
+  $("#task-dialog").close();
+  showToast(`已排到${label}`);
   await refresh();
 }
 
@@ -560,6 +639,9 @@ function bindEvents() {
   $("#add-relation-button").addEventListener("click", createRelationForCurrentTask);
   $("#delete-task-button").addEventListener("click", deleteCurrentTask);
   $("#calendar-button").addEventListener("click", exportCalendar);
+  $$("[data-postpone]").forEach((button) => button.addEventListener("click", () => {
+    postponeCurrentTask(Number(button.dataset.postpone), button.dataset.label);
+  }));
 
   $("#task-search").addEventListener("input", (event) => {
     state.query = event.target.value;

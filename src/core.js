@@ -18,6 +18,13 @@ export const RELATION_LABELS = Object.freeze({
   derived_from: "衍生自"
 });
 
+export const RECURRENCE_LABELS = Object.freeze({
+  none: "不重複",
+  daily: "每天",
+  weekly: "每週",
+  monthly: "每月"
+});
+
 const CLOSED_STATUSES = new Set(["done", "archived", "note"]);
 
 function fallback(value, alternative) {
@@ -42,6 +49,7 @@ export function createTask({ title, dueAt, status, waitingFor, now = new Date(),
     dueAt: dueAt || undefined,
     remindAt: undefined,
     waitingFor: waitingFor || undefined,
+    recurrence: "none",
     tags: [],
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -119,7 +127,7 @@ export function fromDateTimeLocal(value) {
 }
 
 export function isOpen(task) {
-  return !CLOSED_STATUSES.has(task.status);
+  return !task.deletedAt && !CLOSED_STATUSES.has(task.status);
 }
 
 export function computeDashboard(tasks, now = new Date()) {
@@ -163,12 +171,14 @@ export function sortTasks(tasks, now = new Date()) {
 export function filterTasks(tasks, filter = "open", query = "") {
   const normalized = query.trim().toLocaleLowerCase("zh-Hant");
   return tasks.filter((task) => {
+    const deleted = Boolean(task.deletedAt);
     const statusMatch = {
-      open: isOpen(task),
-      inbox: task.status === "inbox",
-      waiting: task.status === "waiting",
-      done: task.status === "done",
-      all: task.status !== "archived"
+      open: !deleted && isOpen(task),
+      inbox: !deleted && task.status === "inbox",
+      waiting: !deleted && task.status === "waiting",
+      done: !deleted && task.status === "done",
+      all: !deleted && task.status !== "archived",
+      deleted
     }[filter];
     const acceptedStatus = fallback(statusMatch, true);
     if (!acceptedStatus) return false;
@@ -183,6 +193,7 @@ export function filterTasks(tasks, filter = "open", query = "") {
 
 export function describeTime(task, now = new Date()) {
   const formatter = new Intl.DateTimeFormat("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+  if (task.deletedAt) return { text: `已移至回收桶 · ${formatter.format(new Date(task.deletedAt))}`, tone: "danger" };
   if (task.status === "waiting") {
     const days = Math.max(0, Math.floor((now - new Date(task.updatedAt)) / 86_400_000));
     return { text: task.waitingFor ? `等待 ${task.waitingFor} · ${days} 天` : `已等待 ${days} 天`, tone: "waiting" };
@@ -198,6 +209,8 @@ export function describeTime(task, now = new Date()) {
 }
 
 export function summarizeTaskChange(before, after) {
+  if (!before.deletedAt && after.deletedAt) return { type: "moved_to_trash", summary: `將「${after.title}」移到回收桶` };
+  if (before.deletedAt && !after.deletedAt) return { type: "restored", summary: `從回收桶還原「${after.title}」` };
   if (before.status !== after.status) {
     if (after.status === "done") return { type: "completed", summary: `完成「${after.title}」` };
     if (before.status === "done") return { type: "reopened", summary: `重新開啟「${after.title}」` };
@@ -205,6 +218,82 @@ export function summarizeTaskChange(before, after) {
   }
   if (before.remindAt !== after.remindAt) return { type: "reminder_changed", summary: `更新「${after.title}」的提醒時間` };
   return { type: "edited", summary: `更新「${after.title}」` };
+}
+
+function shiftRecurringDate(value, recurrence) {
+  const date = new Date(value);
+  if (recurrence === "daily") date.setDate(date.getDate() + 1);
+  if (recurrence === "weekly") date.setDate(date.getDate() + 7);
+  if (recurrence === "monthly") {
+    const originalDay = date.getDate();
+    date.setDate(1);
+    date.setMonth(date.getMonth() + 1);
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    date.setDate(Math.min(originalDay, lastDay));
+  }
+  return date;
+}
+
+export function createNextOccurrence(task, now = new Date(), id = createId("task")) {
+  const recurrence = fallback(task.recurrence, "none");
+  if (recurrence === "none" || !RECURRENCE_LABELS[recurrence]) return null;
+  const baseDue = task.dueAt ? new Date(task.dueAt) : new Date(now);
+  const nextDue = shiftRecurringDate(baseDue, recurrence);
+  const reminderOffset = task.remindAt && task.dueAt
+    ? new Date(task.remindAt).getTime() - new Date(task.dueAt).getTime()
+    : null;
+  const timestamp = now.toISOString();
+  return {
+    id,
+    title: task.title,
+    note: fallback(task.note, ""),
+    nextAction: fallback(task.nextAction, ""),
+    status: "planned",
+    importance: fallback(task.importance, "unset"),
+    dueAt: nextDue.toISOString(),
+    remindAt: reminderOffset === null ? undefined : new Date(nextDue.getTime() + reminderOffset).toISOString(),
+    waitingFor: undefined,
+    recurrence,
+    seriesId: fallback(task.seriesId, task.id),
+    previousOccurrenceId: task.id,
+    tags: [...fallback(task.tags, [])],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    completedAt: undefined,
+    version: 1
+  };
+}
+
+export function rescheduleTask(task, dueAt, now = new Date()) {
+  const status = ["inbox", "done", "archived", "note"].includes(task.status) ? "planned" : task.status;
+  return {
+    ...task,
+    dueAt: new Date(dueAt).toISOString(),
+    status,
+    completedAt: status === "done" ? task.completedAt : undefined,
+    updatedAt: now.toISOString(),
+    version: fallback(task.version, 1) + 1
+  };
+}
+
+export function moveTaskToTrash(task, now = new Date()) {
+  return {
+    ...task,
+    deletedAt: now.toISOString(),
+    statusBeforeDelete: task.status,
+    updatedAt: now.toISOString(),
+    version: fallback(task.version, 1) + 1
+  };
+}
+
+export function restoreTaskFromTrash(task, now = new Date()) {
+  const { deletedAt, statusBeforeDelete, ...rest } = task;
+  return {
+    ...rest,
+    status: statusBeforeDelete || "inbox",
+    updatedAt: now.toISOString(),
+    version: fallback(task.version, 1) + 1
+  };
 }
 
 export function backupPayload(data) {
@@ -256,7 +345,7 @@ export function escapeCsv(value) {
 }
 
 export function tasksToCsv(tasks) {
-  const headers = ["id", "title", "status", "importance", "nextAction", "dueAt", "remindAt", "waitingFor", "tags", "createdAt", "updatedAt"];
+  const headers = ["id", "title", "status", "importance", "nextAction", "dueAt", "remindAt", "recurrence", "waitingFor", "tags", "deletedAt", "createdAt", "updatedAt"];
   const rows = tasks.map((task) => headers.map((key) => escapeCsv(key === "tags" ? fallback(task.tags, []).join("|") : task[key])).join(","));
   return `\uFEFF${headers.join(",")}\r\n${rows.join("\r\n")}`;
 }
