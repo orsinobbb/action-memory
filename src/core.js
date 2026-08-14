@@ -37,6 +37,16 @@ export function createId(prefix = "id") {
   return `${prefix}_${uuid}`;
 }
 
+export function buildTaskLink(taskId, locationLike = globalThis.location) {
+  if (!taskId || !locationLike?.origin || !locationLike?.pathname) return "";
+  return `${locationLike.origin}${locationLike.pathname}#task=${encodeURIComponent(taskId)}`;
+}
+
+export function taskIdFromHash(hash = globalThis.location?.hash || "") {
+  const value = String(hash).replace(/^#/, "");
+  return new URLSearchParams(value).get("task") || undefined;
+}
+
 export function createTask({ title, dueAt, status, waitingFor, now = new Date(), id = createId("task") }) {
   const timestamp = now.toISOString();
   return {
@@ -348,4 +358,26 @@ export function tasksToCsv(tasks) {
   const headers = ["id", "title", "status", "importance", "nextAction", "dueAt", "remindAt", "recurrence", "waitingFor", "tags", "deletedAt", "createdAt", "updatedAt"];
   const rows = tasks.map((task) => headers.map((key) => escapeCsv(key === "tags" ? fallback(task.tags, []).join("|") : task[key])).join(","));
   return `\uFEFF${headers.join(",")}\r\n${rows.join("\r\n")}`;
+}
+
+export function taskToIcs(task, { taskUrl = "", now = new Date(), alarmMinutes = 15 } = {}) {
+  const start = task.dueAt ? new Date(task.dueAt) : task.remindAt ? new Date(task.remindAt) : now;
+  const end = new Date(start.getTime() + 30 * 60_000);
+  const stamp = (date) => new Date(date).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const escapeIcs = (value) => String(value === null || value === undefined ? "" : value)
+    .replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+  const description = [task.nextAction, task.note, taskUrl ? `開啟拾記：${taskUrl}` : ""].filter(Boolean).join("\n");
+  const lines = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    "PRODID:-//Action Memory//ZH-TW", "BEGIN:VEVENT",
+    `UID:${task.id}@action-memory`, `DTSTAMP:${stamp(now)}`,
+    `LAST-MODIFIED:${stamp(task.updatedAt || now)}`, `SEQUENCE:${Math.max(0, Number(task.version || 1) - 1)}`,
+    `DTSTART:${stamp(start)}`, `DTEND:${stamp(end)}`, `SUMMARY:${escapeIcs(task.title)}`,
+    `DESCRIPTION:${escapeIcs(description)}`
+  ];
+  if (taskUrl) lines.push(`URL:${escapeIcs(taskUrl)}`);
+  lines.push("BEGIN:VALARM");
+  lines.push(task.remindAt ? `TRIGGER;VALUE=DATE-TIME:${stamp(task.remindAt)}` : `TRIGGER:-PT${alarmMinutes}M`);
+  lines.push("ACTION:DISPLAY", `DESCRIPTION:${escapeIcs(task.title)}`, "END:VALARM", "END:VEVENT", "END:VCALENDAR");
+  return lines.join("\r\n");
 }

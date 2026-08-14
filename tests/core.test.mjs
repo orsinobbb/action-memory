@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   computeDashboard,
+  buildTaskLink,
   createBackup,
   createNextOccurrence,
   createTask,
@@ -11,6 +12,8 @@ import {
   previewImport,
   rescheduleTask,
   restoreTaskFromTrash,
+  taskIdFromHash,
+  taskToIcs,
   tasksToCsv,
   validateBackup
 } from "../src/core.js";
@@ -19,7 +22,7 @@ const now = new Date("2026-08-12T10:00:00+08:00");
 
 function task(overrides = {}) {
   return {
-    id: overrides.id ?? "task-1",
+    id: overrides.id ?? "task-1", // encoding-guard: allow
     title: "測試事項",
     note: "",
     nextAction: "",
@@ -139,4 +142,28 @@ test("回收桶任務不進入戰情且可還原原狀態", () => {
   const restored = restoreTaskFromTrash(deleted, now);
   assert.equal(restored.status, "waiting");
   assert.equal(restored.deletedAt, undefined);
+});
+
+test("任務深連結使用不含標題的穩定識別碼", () => {
+  const link = buildTaskLink("task-a/b", { origin: "https://example.com", pathname: "/action-memory/" });
+  assert.equal(link, "https://example.com/action-memory/#task=task-a%2Fb");
+  assert.equal(taskIdFromHash("#task=task-a%2Fb"), "task-a/b");
+});
+
+test("行事曆事件可回到原任務並保留更新序號與明確提醒時間", () => {
+  const current = task({
+    id: "calendar-1",
+    title: "確認專案節點",
+    nextAction: "檢查下一步",
+    dueAt: "2026-08-14T10:00:00.000Z",
+    remindAt: "2026-08-14T09:00:00.000Z",
+    updatedAt: "2026-08-13T08:00:00.000Z",
+    version: 3
+  });
+  const url = "https://example.com/action-memory/#task=calendar-1";
+  const ics = taskToIcs(current, { taskUrl: url, now });
+  assert.ok(ics.includes(`URL:${url}`));
+  assert.ok(ics.includes(`開啟拾記：${url}`));
+  assert.ok(ics.includes("SEQUENCE:2"));
+  assert.ok(ics.includes("TRIGGER;VALUE=DATE-TIME:20260814T090000Z"));
 });

@@ -2,6 +2,7 @@ import {
   RELATION_LABELS,
   RECURRENCE_LABELS,
   STATUS_LABELS,
+  buildTaskLink,
   computeDashboard,
   createBackup,
   createId,
@@ -19,6 +20,8 @@ import {
   restoreTaskFromTrash,
   sortTasks,
   summarizeTaskChange,
+  taskIdFromHash,
+  taskToIcs,
   tasksToCsv,
   toDateTimeLocal,
   validateBackup
@@ -339,6 +342,18 @@ function openTaskDialog(taskId) {
   $("#task-dialog").showModal();
 }
 
+function openLinkedTask() {
+  const taskId = taskIdFromHash(location.hash);
+  if (!taskId) return;
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task) {
+    showToast("此裝置尚無這筆任務；請回到建立任務的瀏覽器，或先同步備份");
+    return;
+  }
+  if ($("#task-dialog").open) $("#task-dialog").close();
+  openTaskDialog(task.id);
+}
+
 function readTaskForm(previous) {
   const now = new Date();
   const status = $("#task-status").value;
@@ -550,17 +565,8 @@ async function applyImport(mode) {
 async function exportCalendar() {
   const task = state.tasks.find((item) => item.id === $("#task-id").value);
   if (!task) return;
-  const start = task.dueAt ? new Date(task.dueAt) : task.remindAt ? new Date(task.remindAt) : new Date();
-  const end = new Date(start.getTime() + 30 * 60_000);
-  const stamp = (date) => date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-  const escapeIcs = (value) => String(value === null || value === undefined ? "" : value).replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
-  const content = [
-    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Action Memory//ZH-TW", "BEGIN:VEVENT",
-    `UID:${task.id}@action-memory`, `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(start)}`, `DTEND:${stamp(end)}`,
-    `SUMMARY:${escapeIcs(task.title)}`, `DESCRIPTION:${escapeIcs([task.nextAction, task.note].filter(Boolean).join("\n"))}`,
-    "BEGIN:VALARM", "TRIGGER:-PT15M", "ACTION:DISPLAY", `DESCRIPTION:${escapeIcs(task.title)}`, "END:VALARM",
-    "END:VEVENT", "END:VCALENDAR"
-  ].join("\r\n");
+  const taskUrl = buildTaskLink(task.id, location);
+  const content = taskToIcs(task, { taskUrl });
   await addEvent(makeEvent({ entityId: task.id, type: "exported", summary: `匯出行事曆：${task.title}` }));
   await refresh();
   downloadFile(`${task.title.replace(/[\\/:*?"<>|]/g, "-")}.ics`, content, "text/calendar;charset=utf-8");
@@ -679,6 +685,7 @@ function bindEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") checkDueNotifications();
   });
+  window.addEventListener("hashchange", openLinkedTask);
 }
 
 async function start() {
@@ -686,6 +693,7 @@ async function start() {
   try {
     await refresh();
     checkDueNotifications();
+    openLinkedTask();
   } catch (error) {
     console.error(error);
     showToast("無法開啟本機資料庫，請確認瀏覽器未封鎖網站儲存空間");

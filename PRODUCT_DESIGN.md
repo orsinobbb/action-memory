@@ -88,6 +88,13 @@ stateDiagram-v2
 
 為維持手機操作簡單，關係只在任務明細的「關聯」區塊編輯；首頁不直接顯示複雜節點圖。
 
+### 產品靈魂：結構可以深，操作必須淺
+
+- 首頁只回答「現在要注意什麼」與「下一步是什麼」，不要求使用者先建立完整專案樹。
+- 新資料先進收件匣；專案、關係、里程碑皆為漸進整理，不阻擋快速記錄。
+- 提醒預設關閉且一次只提醒一次；專案層優先使用定期檢視，不替每個節點製造通知。
+- 複雜結構收在明細或專案戰情，日常操作維持記下、排程、完成、延後四個主要動作。
+
 ## 5. 資料結構
 
 ```ts
@@ -105,10 +112,25 @@ interface Task {
   dueAt?: string;             // ISO 8601；真正截止時間
   remindAt?: string;          // 何時再顯示
   waitingFor?: string;
+  projectId?: string;         // 可選；不要求每筆任務都屬於專案
+  milestoneId?: string;       // 可選；保留階段／里程碑擴充
   tags: string[];
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  version: number;
+}
+
+interface Project {
+  id: string;
+  title: string;
+  outcome?: string;           // 完成後要得到的結果
+  status: "active" | "waiting" | "done" | "archived";
+  nextReviewAt?: string;      // 專案以檢視節奏取代大量節點提醒
+  dueAt?: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
   version: number;
 }
 
@@ -134,7 +156,7 @@ interface Event {
 }
 ```
 
-IndexedDB 建議分成 `tasks`、`relations`、`events`、`settings`、`backups` 五個 object stores。匯出格式包含 `schemaVersion`、`exportedAt`、資料集合與 SHA-256 校驗摘要；匯入前先預覽新增／覆蓋／衝突筆數，不直接改寫現有資料。
+現階段 IndexedDB 使用 `tasks`、`relations`、`events`、`settings`；專案介面成熟後再以資料庫升級加入 `projects`，避免為尚未使用的結構增加操作負擔。Task 先保留可選的 `projectId`、`milestoneId`，舊資料不需轉換。匯出格式包含 `schemaVersion`、`exportedAt`、資料集合與 SHA-256 校驗摘要；匯入前先預覽新增／覆蓋／衝突筆數，不直接改寫現有資料。
 
 ## 6. 每個動作放在哪裡
 
@@ -166,6 +188,9 @@ IndexedDB 建議分成 `tasks`、`relations`、`events`、`settings`、`backups`
 - 應用程式開啟時：可靠執行本地規則，更新角標、首頁與通知。
 - 瀏覽器通知：只有在瀏覽器／PWA 與作業系統允許時提供，不能保證背景準時。
 - 需要準時提醒的任務：提供「加入手機行事曆」匯出 `.ics`。
+- `.ics` 使用穩定 UID、版本序號與原任務網址；從行事曆可回到 `#task=<id>` 的任務明細。
+- 行事曆連結只攜帶不透明任務 ID，不把標題或筆記放進網址。
+- 單次下載的 `.ics` 不是即時同步；未來要即時更新需提供可訂閱行事曆或後端同步 API。
 - 第二階段：後端排程 + Web Push，並顯示通知已排程／已送達／失敗狀態。
 
 ## 8. 手機戰情首頁
@@ -229,6 +254,7 @@ POST   /api/v1/backups            建立加密備份
 GET    /api/v1/backups/:id        下載備份
 POST   /api/v1/reminders          排程通知
 DELETE /api/v1/reminders/:id      取消通知
+GET    /api/v1/calendar/:token.ics 提供唯讀可訂閱行事曆，讓任務更新反映到行事曆
 POST   /api/v1/ai/organize        產生結構化建議
 ```
 
