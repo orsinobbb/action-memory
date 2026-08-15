@@ -381,6 +381,9 @@ dialog::backdrop { background: rgba(13, 28, 24, 0.46); backdrop-filter: blur(3px
 
 .modal { width: min(calc(100% - 28px), 560px); max-height: 88dvh; padding: 0; border: 0; border-radius: 24px; background: var(--surface); box-shadow: var(--shadow); }
 .modal-card { padding: 20px; overflow-y: auto; max-height: 88dvh; }
+.linked-task-card h2 { max-width: 18rem; overflow-wrap: anywhere; }
+.linked-task-time { margin: 18px 0 10px; color: var(--green); font-size: 1rem; font-weight: 850; }
+.linked-task-notice { margin: 0 0 20px; padding: 13px; border-radius: 13px; background: var(--mint); color: var(--muted); font-size: 0.8rem; line-height: 1.65; }
 .settings-section { padding: 17px 0; border-top: 1px solid var(--line); }
 .settings-section > p { margin: 7px 0 13px; color: var(--muted); font-size: 0.8rem; line-height: 1.55; }
 .button-stack { display: grid; gap: 8px; }

@@ -13,6 +13,7 @@ import {
   rescheduleTask,
   restoreTaskFromTrash,
   taskIdFromHash,
+  taskPreviewFromHash,
   taskToIcs,
   tasksToCsv,
   validateBackup
@@ -144,10 +145,25 @@ test("回收桶任務不進入戰情且可還原原狀態", () => {
   assert.equal(restored.deletedAt, undefined);
 });
 
-test("任務深連結使用不含標題的穩定識別碼", () => {
+test("舊任務深連結仍使用穩定識別碼", () => {
   const link = buildTaskLink("task-a/b", { origin: "https://example.com", pathname: "/action-memory/" });
   assert.equal(link, "https://example.com/action-memory/#task=task-a%2Fb");
   assert.equal(taskIdFromHash("#task=task-a%2Fb"), "task-a/b");
+});
+
+test("行事曆深連結只攜帶最小任務摘要", () => {
+  const link = buildTaskLink("task-1", { origin: "https://example.com", pathname: "/action-memory/" }, {
+    title: "買蛋 & 牛奶",
+    dueAt: "2026-08-15T04:00:00.000Z",
+    note: "不應放進連結"
+  });
+  assert.equal(link, "https://example.com/action-memory/#task=task-1&title=%E8%B2%B7%E8%9B%8B+%26+%E7%89%9B%E5%A5%B6&when=2026-08-15T04%3A00%3A00.000Z");
+  assert.deepEqual(taskPreviewFromHash(new URL(link).hash), {
+    id: "task-1",
+    title: "買蛋 & 牛奶",
+    when: "2026-08-15T04:00:00.000Z"
+  });
+  assert.equal(link.includes("不應放進連結"), false);
 });
 
 test("行事曆事件可回到原任務並保留更新序號與明確提醒時間", () => {

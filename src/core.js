@@ -37,14 +37,28 @@ export function createId(prefix = "id") {
   return `${prefix}_${uuid}`;
 }
 
-export function buildTaskLink(taskId, locationLike = globalThis.location) {
+export function buildTaskLink(taskId, locationLike = globalThis.location, preview = {}) {
   if (!taskId || !locationLike?.origin || !locationLike?.pathname) return "";
-  return `${locationLike.origin}${locationLike.pathname}#task=${encodeURIComponent(taskId)}`;
+  const params = new URLSearchParams({ task: taskId });
+  const title = String(preview.title || "").trim().slice(0, 180);
+  const when = preview.when || preview.dueAt || preview.remindAt;
+  if (title) params.set("title", title);
+  if (when && !Number.isNaN(new Date(when).getTime())) params.set("when", new Date(when).toISOString());
+  return `${locationLike.origin}${locationLike.pathname}#${params}`;
 }
 
 export function taskIdFromHash(hash = globalThis.location?.hash || "") {
   const value = String(hash).replace(/^#/, "");
   return new URLSearchParams(value).get("task") || undefined;
+}
+
+export function taskPreviewFromHash(hash = globalThis.location?.hash || "") {
+  const params = new URLSearchParams(String(hash).replace(/^#/, ""));
+  const id = params.get("task") || undefined;
+  const title = String(params.get("title") || "").trim().slice(0, 180);
+  const rawWhen = params.get("when");
+  const when = rawWhen && !Number.isNaN(new Date(rawWhen).getTime()) ? new Date(rawWhen).toISOString() : undefined;
+  return id && title ? { id, title, when } : undefined;
 }
 
 export function createTask({ title, dueAt, status, waitingFor, now = new Date(), id = createId("task") }) {

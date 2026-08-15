@@ -246,6 +246,18 @@
       </form>
     </dialog>
 
+    <dialog class="modal" id="linked-task-dialog">
+      <div class="modal-card linked-task-card">
+        <div class="sheet-header">
+          <div><p class="eyebrow">行事曆摘要</p><h2 id="linked-task-title"></h2></div>
+          <button class="icon-button" id="close-linked-task-button" aria-label="關閉" type="button">×</button>
+        </div>
+        <p class="linked-task-time" id="linked-task-time"></p>
+        <p class="linked-task-notice">這個瀏覽環境尚未同步原任務，因此只顯示行事曆連結中的標題與日期。完整內容仍保存在建立任務的拾記中。</p>
+        <button class="primary-button" id="dismiss-linked-task-button" type="button">知道了</button>
+      </div>
+    </dialog>
+
     <dialog class="modal" id="settings-dialog">
       <div class="modal-card">
         <div class="sheet-header">

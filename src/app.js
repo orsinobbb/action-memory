@@ -21,6 +21,7 @@ import {
   sortTasks,
   summarizeTaskChange,
   taskIdFromHash,
+  taskPreviewFromHash,
   taskToIcs,
   tasksToCsv,
   toDateTimeLocal,
@@ -347,7 +348,19 @@ function openLinkedTask() {
   if (!taskId) return;
   const task = state.tasks.find((item) => item.id === taskId);
   if (!task) {
-    showToast("此裝置尚無這筆任務；請回到建立任務的瀏覽器，或先同步備份");
+    const preview = taskPreviewFromHash(location.hash);
+    if (!preview) {
+      showToast("此裝置尚無這筆任務；請回到建立任務的拾記，或先匯入備份");
+      return;
+    }
+    $("#linked-task-title").textContent = preview.title;
+    $("#linked-task-time").textContent = preview.when
+      ? new Intl.DateTimeFormat("zh-TW", {
+        year: "numeric", month: "long", day: "numeric", weekday: "short",
+        hour: "2-digit", minute: "2-digit", hour12: false
+      }).format(new Date(preview.when))
+      : "未指定日期";
+    $("#linked-task-dialog").showModal();
     return;
   }
   if ($("#task-dialog").open) $("#task-dialog").close();
@@ -565,7 +578,10 @@ async function applyImport(mode) {
 async function exportCalendar() {
   const task = state.tasks.find((item) => item.id === $("#task-id").value);
   if (!task) return;
-  const taskUrl = buildTaskLink(task.id, location);
+  const taskUrl = buildTaskLink(task.id, location, {
+    title: task.title,
+    when: task.dueAt || task.remindAt
+  });
   const content = taskToIcs(task, { taskUrl });
   await addEvent(makeEvent({ entityId: task.id, type: "exported", summary: `匯出行事曆：${task.title}` }));
   await refresh();
@@ -665,6 +681,8 @@ function bindEvents() {
 
   $("#settings-button").addEventListener("click", () => $("#settings-dialog").showModal());
   $("#close-settings-button").addEventListener("click", () => $("#settings-dialog").close());
+  $("#close-linked-task-button").addEventListener("click", () => $("#linked-task-dialog").close());
+  $("#dismiss-linked-task-button").addEventListener("click", () => $("#linked-task-dialog").close());
   $("#export-json-button").addEventListener("click", exportJson);
   $("#export-csv-button").addEventListener("click", exportCsv);
   $("#import-json-input").addEventListener("change", (event) => event.target.files[0] && loadImportFile(event.target.files[0]));
