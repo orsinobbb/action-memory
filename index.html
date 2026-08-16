@@ -8,7 +8,7 @@
     <title>拾記｜代辦記憶庫</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=7" />
   </head>
   <body>
     <div class="app-shell">
@@ -19,6 +19,7 @@
         </div>
         <div class="topbar-actions">
           <button class="icon-button" id="search-button" type="button" aria-label="搜尋">⌕</button>
+          <button class="icon-button calculator-shortcut" id="calculator-button" type="button" aria-label="開啟計算機">123</button>
           <button class="icon-button" id="settings-button" type="button" aria-label="設定">•••</button>
         </div>
       </header>
@@ -27,7 +28,7 @@
         <section class="view is-active" id="dashboard-view" data-view="dashboard" aria-labelledby="view-title">
           <div class="hero-copy">
             <p id="greeting">先處理真正需要注意的事。</p>
-            <span class="sync-state"><i></i> 資料僅儲存在這台裝置</span>
+            <span class="sync-state" id="sync-state"><i></i> 資料僅儲存在這台裝置</span>
           </div>
 
           <div class="stat-grid" id="stat-grid" aria-label="今日摘要"></div>
@@ -258,6 +259,38 @@
       </div>
     </dialog>
 
+    <dialog class="modal calculator-modal" id="calculator-dialog">
+      <div class="modal-card calculator-card">
+        <div class="sheet-header">
+          <div><p class="eyebrow">隨手工具</p><h2>計算機</h2></div>
+          <button class="icon-button" id="close-calculator-button" aria-label="關閉計算機" type="button">×</button>
+        </div>
+        <output class="calculator-display" id="calculator-display" aria-live="polite">0</output>
+        <div class="calculator-keypad" id="calculator-keypad" aria-label="計算機按鍵">
+          <button class="calculator-key utility-key" type="button" data-calculator-action="clear">AC</button>
+          <button class="calculator-key utility-key" type="button" data-calculator-action="sign" aria-label="正負號">±</button>
+          <button class="calculator-key utility-key" type="button" data-calculator-action="percent" aria-label="百分比">%</button>
+          <button class="calculator-key operator-key" type="button" data-calculator-action="operator" data-calculator-value="÷" aria-label="除以">÷</button>
+          <button class="calculator-key" type="button" data-calculator-action="digit" data-calculator-value="7">7</button>
+          <button class="calculator-key" type="button" data-calculator-action="digit" data-calculator-value="8">8</button>
+          <button class="calculator-key" type="button" data-calculator-action="digit" data-calculator-value="9">9</button>
+          <button class="calculator-key operator-key" type="button" data-calculator-action="operator" data-calculator-value="×" aria-label="乘以">×</button>
+          <button class="calculator-key" type="button" data-calculator-action="digit" data-calculator-value="4">4</button>
+          <button class="calculator-key" type="button" data-calculator-action="digit" data-calculator-value="5">5</button>
+          <button class="calculator-key" type="button" data-calculator-action="digit" data-calculator-value="6">6</button>
+          <button class="calculator-key operator-key" type="button" data-calculator-action="operator" data-calculator-value="−" aria-label="減去">−</button>
+          <button class="calculator-key" type="button" data-calculator-action="digit" data-calculator-value="1">1</button>
+          <button class="calculator-key" type="button" data-calculator-action="digit" data-calculator-value="2">2</button>
+          <button class="calculator-key" type="button" data-calculator-action="digit" data-calculator-value="3">3</button>
+          <button class="calculator-key operator-key" type="button" data-calculator-action="operator" data-calculator-value="+" aria-label="加上">+</button>
+          <button class="calculator-key is-wide" type="button" data-calculator-action="digit" data-calculator-value="0">0</button>
+          <button class="calculator-key" type="button" data-calculator-action="decimal" aria-label="小數點">.</button>
+          <button class="calculator-key equals-key" type="button" data-calculator-action="equals" aria-label="等於">=</button>
+        </div>
+        <button class="secondary-button calculator-copy" id="calculator-copy-button" type="button">複製結果</button>
+      </div>
+    </dialog>
+
     <dialog class="modal" id="settings-dialog">
       <div class="modal-card">
         <div class="sheet-header">
@@ -273,6 +306,21 @@
             <label class="secondary-button file-button">匯入 JSON 備份<input id="import-json-input" type="file" accept="application/json,.json" /></label>
           </div>
           <div class="import-preview" id="import-preview" hidden></div>
+        </section>
+        <section class="settings-section">
+          <h3>Google 雲端備份 <span class="experimental-label">測試</span></h3>
+          <p>本機優先。第一次會開啟 Google 授權，後端再自動建立 Drive 備份資料夾與 Sheets 索引。</p>
+          <label class="backend-url-field">Apps Script 網頁應用程式網址
+            <input id="google-backend-url" type="url" inputmode="url" autocomplete="url" placeholder="https://script.google.com/macros/s/…/exec" />
+          </label>
+          <p class="backend-status" id="google-backend-status" role="status">尚未連接；不影響本機使用。</p>
+          <div class="button-stack">
+            <button class="primary-button" id="google-connect-button" type="button">連接並初始化</button>
+            <button class="secondary-button" id="google-backup-button" type="button" disabled>立即備份到 Google</button>
+            <button class="secondary-button" id="google-restore-button" type="button" disabled>讀取 Google 備份</button>
+            <a class="secondary-button backend-sheet-link" id="google-sheet-link" href="#" target="_blank" rel="noopener" hidden>開啟備份索引表</a>
+          </div>
+          <p class="settings-footnote">不會宣稱背景同步；每次送達與版本衝突都會明確回報。</p>
         </section>
         <section class="settings-section">
           <h3>提醒</h3>
@@ -297,6 +345,6 @@
       <div class="empty-state"><span>✓</span><p></p></div>
     </template>
 
-    <script type="module" src="./src/app.js"></script>
+    <script type="module" src="./src/app.js?v=7"></script>
   </body>
 </html>

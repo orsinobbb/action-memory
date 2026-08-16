@@ -26,17 +26,23 @@ import {
   tasksToCsv,
   toDateTimeLocal,
   validateBackup
-} from "./core.js";
+} from "./core.js?v=7";
 import {
   addEvent,
   addRelation,
   addTask,
   completeRecurringTask,
   getAllData,
+  getSetting,
   importData,
   removeRelation,
+  setSetting,
   updateTask
-} from "./db.js";
+} from "./db.js?v=7";
+import { GoogleBackendBridge, normalizeGoogleBackendUrl } from "./google-backend.js?v=7";
+import { calculatorReducer, createCalculatorState } from "./calculator.js?v=7";
+
+const GOOGLE_BACKEND_SETTING = "googleBackend";
 
 const state = {
   tasks: [],
@@ -47,7 +53,10 @@ const state = {
   query: "",
   captureMode: null,
   pendingImport: null,
-  deferredInstallPrompt: null
+  deferredInstallPrompt: null,
+  calculator: createCalculatorState(),
+  googleBackend: null,
+  googleBridge: null
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -66,6 +75,44 @@ function showToast(message) {
   toast.classList.add("is-visible");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.remove("is-visible"), 2600);
+}
+
+function renderCalculator() {
+  $("#calculator-display").textContent = state.calculator.display;
+  $$("[data-calculator-action='operator']").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.calculatorValue === state.calculator.pendingOperator);
+  });
+}
+
+function useCalculator(action) {
+  state.calculator = calculatorReducer(state.calculator, action);
+  renderCalculator();
+}
+
+async function copyCalculatorResult() {
+  if (state.calculator.display === "錯誤") return;
+  try {
+    await navigator.clipboard.writeText(state.calculator.display);
+    showToast("計算結果已複製");
+  } catch {
+    showToast("瀏覽器未允許自動複製");
+  }
+}
+
+function handleCalculatorKeyboard(event) {
+  if (!$("#calculator-dialog").open) return;
+  const operatorMap = { "+": "+", "-": "−", "*": "×", "/": "÷" };
+  let action = null;
+  if (/^\d$/.test(event.key)) action = { type: "digit", value: event.key };
+  else if (operatorMap[event.key]) action = { type: "operator", value: operatorMap[event.key] };
+  else if (event.key === ".") action = { type: "decimal" };
+  else if (event.key === "%") action = { type: "percent" };
+  else if (event.key === "Enter" || event.key === "=") action = { type: "equals" };
+  else if (event.key === "Backspace") action = { type: "backspace" };
+  else if (event.key === "Delete") action = { type: "clear" };
+  if (!action) return;
+  event.preventDefault();
+  useCalculator(action);
 }
 
 function localDateTimeForDay(offset = 0, hour = 18) {
@@ -531,29 +578,125 @@ async function loadImportFile(file) {
   const preview = $("#import-preview");
   try {
     const backup = JSON.parse(await file.text());
-    const validation = await validateBackup(backup);
-    if (!validation.valid) throw new Error(validation.reason);
-    state.pendingImport = backup;
-    const counts = previewImport({ tasks: state.tasks }, backup.payload);
-    preview.replaceChildren();
-    preview.append(element("strong", "", "備份校驗通過"));
-    preview.append(element("p", "", `共 ${counts.incomingTotal} 件：新增 ${counts.added}、較新版本 ${counts.newer}、不變 ${counts.unchanged}。`));
-    const actions = element("div", "preview-actions");
-    const merge = element("button", "secondary-button", "安全合併");
-    merge.type = "button";
-    merge.addEventListener("click", () => applyImport("merge"));
-    const replace = element("button", "danger-button", "完整取代");
-    replace.type = "button";
-    replace.addEventListener("click", () => applyImport("replace"));
-    actions.append(merge, replace);
-    preview.append(actions);
-    preview.hidden = false;
+    await showImportPreview(backup, "備份校驗通過");
   } catch (error) {
     state.pendingImport = null;
     preview.replaceChildren(element("strong", "", `無法匯入：${error.message}`));
     preview.hidden = false;
   } finally {
     $("#import-json-input").value = "";
+  }
+}
+
+async function showImportPreview(backup, title) {
+  const preview = $("#import-preview");
+  const validation = await validateBackup(backup);
+  if (!validation.valid) throw new Error(validation.reason);
+  state.pendingImport = backup;
+  const counts = previewImport({ tasks: state.tasks }, backup.payload);
+  preview.replaceChildren();
+  preview.append(element("strong", "", title));
+  preview.append(element("p", "", `共 ${counts.incomingTotal} 件：新增 ${counts.added}、較新版本 ${counts.newer}、不變 ${counts.unchanged}。`));
+  const actions = element("div", "preview-actions");
+  const merge = element("button", "secondary-button", "安全合併");
+  merge.type = "button";
+  merge.addEventListener("click", () => applyImport("merge"));
+  const replace = element("button", "danger-button", "完整取代");
+  replace.type = "button";
+  replace.addEventListener("click", () => applyImport("replace"));
+  actions.append(merge, replace);
+  preview.append(actions);
+  preview.hidden = false;
+}
+
+function setGoogleBackendStatus(message, isError = false) {
+  const node = $("#google-backend-status");
+  node.textContent = message;
+  node.classList.toggle("is-error", isError);
+}
+
+function applyGoogleHealth(health) {
+  const connected = Boolean(health && health.initialized);
+  $("#google-backup-button").disabled = !connected;
+  $("#google-restore-button").disabled = !connected || !health.hasBackup;
+  const sheetLink = $("#google-sheet-link");
+  sheetLink.hidden = !connected || !health.spreadsheetUrl;
+  if (health.spreadsheetUrl) sheetLink.href = health.spreadsheetUrl;
+  $("#sync-state").innerHTML = connected
+    ? `<i></i> 本機優先 · Google 版本 ${health.revision}`
+    : "<i></i> 資料僅儲存在這台裝置";
+  setGoogleBackendStatus(connected
+    ? `Google 後端已驗證；雲端版本 ${health.revision}${health.hasBackup ? "，已有備份" : "，尚無備份"}。`
+    : "Google 後端尚未初始化；不影響本機使用。");
+}
+
+async function saveGoogleState(health) {
+  state.googleBackend = {
+    url: normalizeGoogleBackendUrl($("#google-backend-url").value),
+    revision: health.revision,
+    initialized: health.initialized,
+    hasBackup: health.hasBackup,
+    spreadsheetUrl: health.spreadsheetUrl || null
+  };
+  await setSetting(GOOGLE_BACKEND_SETTING, state.googleBackend);
+  applyGoogleHealth(state.googleBackend);
+}
+
+async function connectGoogleBackend() {
+  const button = $("#google-connect-button");
+  button.disabled = true;
+  setGoogleBackendStatus("請在 Google 視窗完成登入與授權…");
+  try {
+    if (state.googleBridge) state.googleBridge.close();
+    state.googleBridge = await new GoogleBackendBridge().connect($("#google-backend-url").value);
+    const health = await state.googleBridge.request("initialize");
+    await saveGoogleState(health);
+    showToast("Google 後端已初始化並通過檢查");
+  } catch (error) {
+    setGoogleBackendStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function backupToGoogle() {
+  const button = $("#google-backup-button");
+  button.disabled = true;
+  setGoogleBackendStatus("正在建立校驗備份並送往 Google…");
+  try {
+    if (!state.googleBridge || !state.googleBridge.ready) throw new Error("請先按「連接並初始化」重新驗證 Google 授權");
+    const backup = await createBackup({ tasks: state.tasks, relations: state.relations, events: state.events });
+    const result = await state.googleBridge.request("push", {
+      backup,
+      baseRevision: state.googleBackend.revision,
+      deviceId: "web-" + window.location.hostname,
+      requestId: createId("backup")
+    });
+    if (result.conflict) throw new Error(`雲端已有版本 ${result.revision}，本次未覆寫；請先讀取雲端備份。`);
+    await saveGoogleState(result);
+    showToast(`Google 備份已送達（版本 ${result.revision}）`);
+  } catch (error) {
+    setGoogleBackendStatus(error.message, true);
+    button.disabled = false;
+  }
+}
+
+async function restoreFromGoogle() {
+  const button = $("#google-restore-button");
+  button.disabled = true;
+  setGoogleBackendStatus("正在讀取 Google 備份…");
+  try {
+    if (!state.googleBridge || !state.googleBridge.ready) throw new Error("請先按「連接並初始化」重新驗證 Google 授權");
+    const result = await state.googleBridge.request("pull");
+    if (!result.backup) throw new Error("Google 後端目前沒有備份");
+    await showImportPreview(result.backup, `Google 版本 ${result.revision} 校驗通過`);
+    state.googleBackend.revision = result.revision;
+    await setSetting(GOOGLE_BACKEND_SETTING, state.googleBackend);
+    setGoogleBackendStatus("已讀取雲端備份；請在「本機資料」預覽後選擇安全合併或完整取代。");
+  } catch (error) {
+    setGoogleBackendStatus(error.message, true);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -679,6 +822,19 @@ function bindEvents() {
     setTimeout(() => $("#task-search").focus(), 60);
   });
 
+  $("#calculator-button").addEventListener("click", () => {
+    renderCalculator();
+    $("#calculator-dialog").showModal();
+  });
+  $("#close-calculator-button").addEventListener("click", () => $("#calculator-dialog").close());
+  $("#calculator-keypad").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-calculator-action]");
+    if (!button) return;
+    useCalculator({ type: button.dataset.calculatorAction, value: button.dataset.calculatorValue });
+  });
+  $("#calculator-copy-button").addEventListener("click", copyCalculatorResult);
+  document.addEventListener("keydown", handleCalculatorKeyboard);
+
   $("#settings-button").addEventListener("click", () => $("#settings-dialog").showModal());
   $("#close-settings-button").addEventListener("click", () => $("#settings-dialog").close());
   $("#close-linked-task-button").addEventListener("click", () => $("#linked-task-dialog").close());
@@ -686,6 +842,9 @@ function bindEvents() {
   $("#export-json-button").addEventListener("click", exportJson);
   $("#export-csv-button").addEventListener("click", exportCsv);
   $("#import-json-input").addEventListener("change", (event) => event.target.files[0] && loadImportFile(event.target.files[0]));
+  $("#google-connect-button").addEventListener("click", connectGoogleBackend);
+  $("#google-backup-button").addEventListener("click", backupToGoogle);
+  $("#google-restore-button").addEventListener("click", restoreFromGoogle);
   $("#notification-button").addEventListener("click", requestNotifications);
   $("#install-button").addEventListener("click", async () => {
     if (!state.deferredInstallPrompt) return;
@@ -709,6 +868,11 @@ function bindEvents() {
 async function start() {
   bindEvents();
   try {
+    state.googleBackend = await getSetting(GOOGLE_BACKEND_SETTING);
+    if (state.googleBackend && state.googleBackend.url) {
+      $("#google-backend-url").value = state.googleBackend.url;
+      setGoogleBackendStatus("已儲存後端網址；請按「連接並初始化」重新驗證 Google 授權與資源狀態。");
+    }
     await refresh();
     checkDueNotifications();
     openLinkedTask();

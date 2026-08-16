@@ -56,6 +56,18 @@ export async function getAllData() {
   return { tasks, relations, events };
 }
 
+export async function getSetting(key) {
+  const record = await getById("settings", key);
+  return record ? record.value : undefined;
+}
+
+export async function setSetting(key, value) {
+  const db = await openDatabase();
+  const transaction = db.transaction("settings", "readwrite");
+  transaction.objectStore("settings").put({ key, value });
+  await transactionDone(transaction);
+}
+
 export async function addEvent(event) {
   const db = await openDatabase();
   const transaction = db.transaction("events", "readwrite");
