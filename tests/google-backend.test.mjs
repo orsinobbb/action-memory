@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { normalizeGoogleBackendUrl, summarizeGoogleSetup } from "../src/google-backend.js";
+
+const codeGs = readFileSync(new URL("../backend/apps-script/Code.gs", import.meta.url), "utf8");
 
 test("accepts an Apps Script exec URL and removes query data", () => {
   assert.equal(
@@ -24,12 +27,19 @@ test("setup progress accepts an existing published backend without replaying man
   assert.deepEqual(progress.steps, { project: true, files: true, deploy: true, connect: true });
 });
 
-test("setup progress requires all source files before deployment", () => {
+test("setup progress only requires the single Code.gs file", () => {
   const progress = summarizeGoogleSetup({
     projectOpened: true,
-    copiedFiles: ["Code.gs", "Bridge.html"]
+    copiedFiles: ["Code.gs"]
   });
-  assert.equal(progress.completed, 1);
-  assert.equal(progress.steps.files, false);
+  assert.equal(progress.completed, 2);
+  assert.equal(progress.steps.files, true);
   assert.equal(progress.steps.deploy, false);
+});
+
+test("Code.gs is a self-contained setup and bridge bundle", () => {
+  assert.doesNotThrow(() => new Function(codeGs));
+  assert.match(codeGs, /function setup\(\)/);
+  assert.match(codeGs, /createHtmlOutput\(buildBridgePage_\(origin\)\)/);
+  assert.doesNotMatch(codeGs, /createTemplateFromFile/);
 });

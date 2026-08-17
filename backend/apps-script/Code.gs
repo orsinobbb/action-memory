@@ -1,5 +1,5 @@
 const ACTION_MEMORY = Object.freeze({
-  version: "0.1.0",
+  version: "0.2.0",
   folderName: "拾記 Action Memory",
   spreadsheetName: "拾記雲端備份索引",
   maxBackupBytes: 5 * 1024 * 1024,
@@ -23,10 +23,59 @@ function doGet(e) {
   if (ACTION_MEMORY.allowedOrigins.indexOf(origin) === -1) {
     return HtmlService.createHtmlOutput("此來源未獲拾記後端允許。");
   }
-  const template = HtmlService.createTemplateFromFile("Bridge");
-  template.allowedOrigin = origin;
-  template.backendVersion = ACTION_MEMORY.version;
-  return template.evaluate().setTitle("拾記 Google 連接");
+  return HtmlService.createHtmlOutput(buildBridgePage_(origin)).setTitle("拾記 Google 連接");
+}
+
+function setup() {
+  const health = initializeBackend_();
+  console.log("拾記 Google 後端已完成初始化。");
+  console.log("備份索引：" + health.spreadsheetUrl);
+  console.log("下一步：部署為網頁應用程式，再將 /exec 網址貼回拾記。");
+  return health;
+}
+
+function buildBridgePage_(allowedOrigin) {
+  const originJson = JSON.stringify(allowedOrigin).replace(/</g, "\\u003c");
+  const versionJson = JSON.stringify(ACTION_MEMORY.version).replace(/</g, "\\u003c");
+  return `<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>拾記 Google 連接</title>
+    <style>
+      body { margin: 0; padding: 28px; color: #153a35; background: #f7f6f1; font: 16px/1.6 system-ui, sans-serif; }
+      main { max-width: 420px; margin: 12vh auto; padding: 24px; background: white; border-radius: 24px; box-shadow: 0 18px 55px #163b321c; }
+      small { color: #657a76; }
+    </style>
+  </head>
+  <body>
+    <main><h1>拾記 Google 連接</h1><p id="status">已取得 Google 授權，正在等待拾記。</p><small>後端版本 <span id="version"></span></small></main>
+    <script>
+      const allowedOrigin = ${originJson};
+      document.getElementById("version").textContent = ${versionJson};
+      const statusNode = document.getElementById("status");
+      function reply(message) { if (window.opener) window.opener.postMessage(message, allowedOrigin); }
+      window.addEventListener("message", (event) => {
+        const message = event.data || {};
+        if (event.origin !== allowedOrigin || event.source !== window.opener || message.source !== "action-memory-web") return;
+        statusNode.textContent = "正在處理「" + message.action + "」…";
+        google.script.run
+          .withSuccessHandler((result) => {
+            statusNode.textContent = "完成，可回到拾記。";
+            reply({ source: "action-memory-gas", requestId: message.requestId, ok: true, result });
+          })
+          .withFailureHandler((error) => {
+            statusNode.textContent = "未完成：" + (error && error.message ? error.message : "未知錯誤");
+            reply({ source: "action-memory-gas", requestId: message.requestId, ok: false, error: statusNode.textContent });
+          })
+          .bridgeCommand({ action: message.action, payload: message.payload || {} });
+      });
+      reply({ source: "action-memory-gas", type: "ready" });
+    <\/script>
+  </body>
+</html>`;
 }
 
 function bridgeCommand(request) {

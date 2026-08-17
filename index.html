@@ -8,7 +8,7 @@
     <title>拾記｜代辦記憶庫</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=8" />
+    <link rel="stylesheet" href="./styles.css?v=9" />
   </head>
   <body>
     <div class="app-shell">
@@ -309,7 +309,7 @@
         </section>
         <section class="settings-section">
           <h3>Google 雲端備份 <span class="experimental-label">測試</span></h3>
-          <p>本機優先。安裝精靈會帶你完成 Google 必要設定；授權後自動建立 Drive 資料夾與 Sheets 索引。</p>
+          <p>本機優先。只需貼上一份 <code>Code.gs</code>；執行 <code>setup()</code> 後會要求授權並自動建立 Drive 資料夾與 Sheets 索引。</p>
           <details class="google-setup-guide" id="google-setup-guide" open>
             <summary>
               <span>第一次設定 Google 備份</span>
@@ -327,27 +327,25 @@
               <li class="setup-step" data-google-step="files">
                 <span class="setup-step-number">2</span>
                 <div>
-                  <strong>建立並貼上三個檔案</strong>
-                  <p><code>Code.gs</code> 取代原內容；新增 HTML 檔並命名 <code>Bridge</code>；在專案設定開啟資訊清單後貼上 <code>appsscript.json</code>。</p>
+                  <strong>貼上單一 Code.gs</strong>
+                  <p>刪除編輯器內原有內容，貼上完整程式碼並儲存。不需要建立 HTML 或資訊清單檔案。</p>
                   <div class="setup-copy-grid">
                     <button class="secondary-button setup-copy-button" type="button" data-google-copy-file="Code.gs">複製 Code.gs</button>
-                    <button class="secondary-button setup-copy-button" type="button" data-google-copy-file="Bridge.html">複製 Bridge.html</button>
-                    <button class="secondary-button setup-copy-button" type="button" data-google-copy-file="appsscript.json">複製 appsscript.json</button>
                   </div>
                 </div>
               </li>
               <li class="setup-step" data-google-step="deploy">
                 <span class="setup-step-number">3</span>
                 <div>
-                  <strong>部署為網頁應用程式</strong>
-                  <p>選「部署 → 新增部署 → 網頁應用程式」。執行身分選「存取網頁應用程式的使用者」，完成授權後複製結尾為 <code>/exec</code> 的網址。</p>
+                  <strong>執行 setup()，再部署</strong>
+                  <p>上方函式選單選 <code>setup</code> 並按「執行」，同意 Google 授權。完成後選「部署 → 新增部署 → 網頁應用程式」，執行身分選「存取網頁應用程式的使用者」，再複製結尾為 <code>/exec</code> 的網址。</p>
                 </div>
               </li>
               <li class="setup-step" data-google-step="connect">
                 <span class="setup-step-number">4</span>
                 <div>
-                  <strong>貼上網址並初始化</strong>
-                  <p>拾記會實際檢查授權與資源，不會只因為已登入就顯示成功。</p>
+                  <strong>貼上網址並驗證</strong>
+                  <p>拾記會實際檢查授權與已建立的資源，不會只因為已登入就顯示成功。</p>
                 </div>
               </li>
             </ol>
@@ -358,7 +356,7 @@
           <p class="backend-url-check" id="google-backend-url-check">等待貼上結尾為 /exec 的部署網址。</p>
           <p class="backend-status" id="google-backend-status" role="status">尚未連接；不影響本機使用。</p>
           <div class="button-stack">
-            <button class="primary-button" id="google-connect-button" type="button">連接並初始化</button>
+            <button class="primary-button" id="google-connect-button" type="button">連接並驗證</button>
             <button class="secondary-button" id="google-backup-button" type="button" disabled>立即備份到 Google</button>
             <button class="secondary-button" id="google-restore-button" type="button" disabled>讀取 Google 備份</button>
             <a class="secondary-button backend-sheet-link" id="google-sheet-link" href="#" target="_blank" rel="noopener" hidden>開啟備份索引表</a>
@@ -388,6 +386,6 @@
       <div class="empty-state"><span>✓</span><p></p></div>
     </template>
 
-    <script type="module" src="./src/app.js?v=8"></script>
+    <script type="module" src="./src/app.js?v=9"></script>
   </body>
 </html>

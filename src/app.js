@@ -26,7 +26,7 @@ import {
   tasksToCsv,
   toDateTimeLocal,
   validateBackup
-} from "./core.js?v=8";
+} from "./core.js?v=9";
 import {
   addEvent,
   addRelation,
@@ -38,9 +38,9 @@ import {
   removeRelation,
   setSetting,
   updateTask
-} from "./db.js?v=8";
-import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=8";
-import { calculatorReducer, createCalculatorState } from "./calculator.js?v=8";
+} from "./db.js?v=9";
+import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=9";
+import { calculatorReducer, createCalculatorState } from "./calculator.js?v=9";
 
 const GOOGLE_BACKEND_SETTING = "googleBackend";
 const GOOGLE_SETUP_STORAGE = "action-memory-google-setup-v1";
@@ -655,7 +655,7 @@ function renderGoogleSetup() {
     urlCheck.textContent = "等待貼上結尾為 /exec 的部署網址。";
     urlCheck.classList.remove("is-valid", "is-error");
   } else if (progress.published) {
-    urlCheck.textContent = "網址格式正確，可以連接並初始化。";
+    urlCheck.textContent = "網址格式正確，可以連接並驗證。";
     urlCheck.classList.add("is-valid");
     urlCheck.classList.remove("is-error");
   } else {
@@ -686,7 +686,7 @@ async function copyGoogleSetupFile(button) {
   const file = button.dataset.googleCopyFile;
   button.disabled = true;
   try {
-    const response = await fetch(`./backend/apps-script/${file}?v=8`, { cache: "no-store" });
+    const response = await fetch(`./backend/apps-script/${file}?v=9`, { cache: "no-store" });
     if (!response.ok) throw new Error(`讀取 ${file} 失敗`);
     await copyText(await response.text());
     if (!state.googleSetup.copiedFiles.includes(file)) state.googleSetup.copiedFiles.push(file);
@@ -737,7 +737,7 @@ async function connectGoogleBackend() {
     const health = await state.googleBridge.request("initialize");
     await saveGoogleState(health);
     $("#google-setup-guide").open = false;
-    showToast("Google 後端已初始化並通過檢查");
+    showToast("Google 後端已連接並通過檢查");
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
   } finally {
@@ -750,7 +750,7 @@ async function backupToGoogle() {
   button.disabled = true;
   setGoogleBackendStatus("正在建立校驗備份並送往 Google…");
   try {
-    if (!state.googleBridge || !state.googleBridge.ready) throw new Error("請先按「連接並初始化」重新驗證 Google 授權");
+    if (!state.googleBridge || !state.googleBridge.ready) throw new Error("請先按「連接並驗證」重新驗證 Google 授權");
     const backup = await createBackup({ tasks: state.tasks, relations: state.relations, events: state.events });
     const result = await state.googleBridge.request("push", {
       backup,
@@ -772,7 +772,7 @@ async function restoreFromGoogle() {
   button.disabled = true;
   setGoogleBackendStatus("正在讀取 Google 備份…");
   try {
-    if (!state.googleBridge || !state.googleBridge.ready) throw new Error("請先按「連接並初始化」重新驗證 Google 授權");
+    if (!state.googleBridge || !state.googleBridge.ready) throw new Error("請先按「連接並驗證」重新驗證 Google 授權");
     const result = await state.googleBridge.request("pull");
     if (!result.backup) throw new Error("Google 後端目前沒有備份");
     await showImportPreview(result.backup, `Google 版本 ${result.revision} 校驗通過`);
@@ -966,7 +966,7 @@ async function start() {
     state.googleBackend = await getSetting(GOOGLE_BACKEND_SETTING);
     if (state.googleBackend && state.googleBackend.url) {
       $("#google-backend-url").value = state.googleBackend.url;
-      setGoogleBackendStatus("已儲存後端網址；請按「連接並初始化」重新驗證 Google 授權與資源狀態。");
+      setGoogleBackendStatus("已儲存後端網址；請按「連接並驗證」重新驗證 Google 授權與資源狀態。");
     }
     renderGoogleSetup();
     await refresh();

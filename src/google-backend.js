@@ -11,7 +11,7 @@ export function normalizeGoogleBackendUrl(value) {
   return url.href;
 }
 
-export const GOOGLE_SETUP_FILES = Object.freeze(["Code.gs", "Bridge.html", "appsscript.json"]);
+export const GOOGLE_SETUP_FILES = Object.freeze(["Code.gs"]);
 
 export function summarizeGoogleSetup({ projectOpened = false, copiedFiles = [], url = "", initialized = false } = {}) {
   let published = false;
