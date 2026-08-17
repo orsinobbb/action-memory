@@ -8,7 +8,7 @@
     <title>拾記｜代辦記憶庫</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=7" />
+    <link rel="stylesheet" href="./styles.css?v=8" />
   </head>
   <body>
     <div class="app-shell">
@@ -309,10 +309,53 @@
         </section>
         <section class="settings-section">
           <h3>Google 雲端備份 <span class="experimental-label">測試</span></h3>
-          <p>本機優先。第一次會開啟 Google 授權，後端再自動建立 Drive 備份資料夾與 Sheets 索引。</p>
+          <p>本機優先。安裝精靈會帶你完成 Google 必要設定；授權後自動建立 Drive 資料夾與 Sheets 索引。</p>
+          <details class="google-setup-guide" id="google-setup-guide" open>
+            <summary>
+              <span>第一次設定 Google 備份</span>
+              <span class="setup-progress-badge" id="google-setup-progress">0 / 4</span>
+            </summary>
+            <ol class="setup-steps">
+              <li class="setup-step" data-google-step="project">
+                <span class="setup-step-number">1</span>
+                <div>
+                  <strong>建立 Apps Script 專案</strong>
+                  <p>使用要保存備份的 Google 帳號開啟新專案。</p>
+                  <a class="secondary-button setup-action" id="google-script-open-button" href="https://script.new" target="_blank" rel="noopener">開啟 Apps Script</a>
+                </div>
+              </li>
+              <li class="setup-step" data-google-step="files">
+                <span class="setup-step-number">2</span>
+                <div>
+                  <strong>建立並貼上三個檔案</strong>
+                  <p><code>Code.gs</code> 取代原內容；新增 HTML 檔並命名 <code>Bridge</code>；在專案設定開啟資訊清單後貼上 <code>appsscript.json</code>。</p>
+                  <div class="setup-copy-grid">
+                    <button class="secondary-button setup-copy-button" type="button" data-google-copy-file="Code.gs">複製 Code.gs</button>
+                    <button class="secondary-button setup-copy-button" type="button" data-google-copy-file="Bridge.html">複製 Bridge.html</button>
+                    <button class="secondary-button setup-copy-button" type="button" data-google-copy-file="appsscript.json">複製 appsscript.json</button>
+                  </div>
+                </div>
+              </li>
+              <li class="setup-step" data-google-step="deploy">
+                <span class="setup-step-number">3</span>
+                <div>
+                  <strong>部署為網頁應用程式</strong>
+                  <p>選「部署 → 新增部署 → 網頁應用程式」。執行身分選「存取網頁應用程式的使用者」，完成授權後複製結尾為 <code>/exec</code> 的網址。</p>
+                </div>
+              </li>
+              <li class="setup-step" data-google-step="connect">
+                <span class="setup-step-number">4</span>
+                <div>
+                  <strong>貼上網址並初始化</strong>
+                  <p>拾記會實際檢查授權與資源，不會只因為已登入就顯示成功。</p>
+                </div>
+              </li>
+            </ol>
+          </details>
           <label class="backend-url-field">Apps Script 網頁應用程式網址
-            <input id="google-backend-url" type="url" inputmode="url" autocomplete="url" placeholder="https://script.google.com/macros/s/…/exec" />
+            <input id="google-backend-url" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec" />
           </label>
+          <p class="backend-url-check" id="google-backend-url-check">等待貼上結尾為 /exec 的部署網址。</p>
           <p class="backend-status" id="google-backend-status" role="status">尚未連接；不影響本機使用。</p>
           <div class="button-stack">
             <button class="primary-button" id="google-connect-button" type="button">連接並初始化</button>
@@ -345,6 +388,6 @@
       <div class="empty-state"><span>✓</span><p></p></div>
     </template>
 
-    <script type="module" src="./src/app.js?v=7"></script>
+    <script type="module" src="./src/app.js?v=8"></script>
   </body>
 </html>

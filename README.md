@@ -37,7 +37,7 @@ npm.cmd run serve
 
 ## 可選 Google 後端
 
-Apps Script 後端骨架、權限邊界與一次性部署步驟請見 [`backend/apps-script/README.md`](./backend/apps-script/README.md)。Google 基於安全規則仍要求使用者親自完成首次網頁應用程式部署與授權；之後拾記可自動初始化儲存資源、檢查實際健康狀態，並以版本衝突保護執行主動備份與還原預覽。
+網站的「設定與備份」內建 Apps Script 安裝精靈，可一鍵開啟新專案、複製三個必要檔案、檢查 `/exec` 網址並顯示初始化進度。Google 基於安全規則仍要求使用者親自完成首次網頁應用程式部署與授權；之後拾記會自動建立儲存資源、檢查實際健康狀態，並以版本衝突保護執行主動備份與還原預覽。完整權限邊界另見 [`backend/apps-script/README.md`](./backend/apps-script/README.md)。
 
 ## 隱私與提醒限制
 

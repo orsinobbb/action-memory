@@ -3,12 +3,37 @@ const SOURCE_GAS = "action-memory-gas";
 
 export function normalizeGoogleBackendUrl(value) {
   const url = new URL(String(value || "").trim());
-  if (url.protocol !== "https:" || url.hostname !== "script.google.com" || !/^\/macros\/s\/[^/]+\/(exec|dev)$/.test(url.pathname)) {
+  if (url.protocol !== "https:" || url.hostname !== "script.google.com" || !/^\/macros\/s\/[^/]+\/exec$/.test(url.pathname)) {
     throw new Error("請貼上 Apps Script 網頁應用程式的 /exec 網址");
   }
   url.search = "";
   url.hash = "";
   return url.href;
+}
+
+export const GOOGLE_SETUP_FILES = Object.freeze(["Code.gs", "Bridge.html", "appsscript.json"]);
+
+export function summarizeGoogleSetup({ projectOpened = false, copiedFiles = [], url = "", initialized = false } = {}) {
+  let published = false;
+  try {
+    published = new URL(normalizeGoogleBackendUrl(url)).pathname.endsWith("/exec");
+  } catch {
+    published = false;
+  }
+  const copied = new Set(Array.isArray(copiedFiles) ? copiedFiles : []);
+  const filesReady = GOOGLE_SETUP_FILES.every((file) => copied.has(file));
+  const steps = {
+    project: Boolean(projectOpened || published),
+    files: Boolean(filesReady || published),
+    deploy: published,
+    connect: Boolean(initialized)
+  };
+  return {
+    steps,
+    completed: Object.values(steps).filter(Boolean).length,
+    total: Object.keys(steps).length,
+    published
+  };
 }
 
 export class GoogleBackendBridge {

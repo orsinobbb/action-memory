@@ -26,7 +26,7 @@ import {
   tasksToCsv,
   toDateTimeLocal,
   validateBackup
-} from "./core.js?v=7";
+} from "./core.js?v=8";
 import {
   addEvent,
   addRelation,
@@ -38,11 +38,12 @@ import {
   removeRelation,
   setSetting,
   updateTask
-} from "./db.js?v=7";
-import { GoogleBackendBridge, normalizeGoogleBackendUrl } from "./google-backend.js?v=7";
-import { calculatorReducer, createCalculatorState } from "./calculator.js?v=7";
+} from "./db.js?v=8";
+import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=8";
+import { calculatorReducer, createCalculatorState } from "./calculator.js?v=8";
 
 const GOOGLE_BACKEND_SETTING = "googleBackend";
+const GOOGLE_SETUP_STORAGE = "action-memory-google-setup-v1";
 
 const state = {
   tasks: [],
@@ -56,7 +57,8 @@ const state = {
   deferredInstallPrompt: null,
   calculator: createCalculatorState(),
   googleBackend: null,
-  googleBridge: null
+  googleBridge: null,
+  googleSetup: loadGoogleSetup()
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -615,6 +617,88 @@ function setGoogleBackendStatus(message, isError = false) {
   node.classList.toggle("is-error", isError);
 }
 
+function loadGoogleSetup() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(GOOGLE_SETUP_STORAGE) || "{}");
+    return {
+      projectOpened: Boolean(saved.projectOpened),
+      copiedFiles: Array.isArray(saved.copiedFiles) ? saved.copiedFiles.filter((file) => GOOGLE_SETUP_FILES.includes(file)) : []
+    };
+  } catch {
+    return { projectOpened: false, copiedFiles: [] };
+  }
+}
+
+function saveGoogleSetup() {
+  localStorage.setItem(GOOGLE_SETUP_STORAGE, JSON.stringify(state.googleSetup));
+  renderGoogleSetup();
+}
+
+function renderGoogleSetup() {
+  const url = $("#google-backend-url").value;
+  const progress = summarizeGoogleSetup({
+    ...state.googleSetup,
+    url,
+    initialized: Boolean(state.googleBackend && state.googleBackend.initialized)
+  });
+  $("#google-setup-progress").textContent = `${progress.completed} / ${progress.total}`;
+  $$("[data-google-step]").forEach((step) => {
+    step.classList.toggle("is-complete", Boolean(progress.steps[step.dataset.googleStep]));
+  });
+  $$("[data-google-copy-file]").forEach((button) => {
+    const copied = state.googleSetup.copiedFiles.includes(button.dataset.googleCopyFile);
+    button.classList.toggle("is-complete", copied);
+    button.textContent = copied ? `已複製 ${button.dataset.googleCopyFile}` : `複製 ${button.dataset.googleCopyFile}`;
+  });
+  const urlCheck = $("#google-backend-url-check");
+  if (!url.trim()) {
+    urlCheck.textContent = "等待貼上結尾為 /exec 的部署網址。";
+    urlCheck.classList.remove("is-valid", "is-error");
+  } else if (progress.published) {
+    urlCheck.textContent = "網址格式正確，可以連接並初始化。";
+    urlCheck.classList.add("is-valid");
+    urlCheck.classList.remove("is-error");
+  } else {
+    urlCheck.textContent = "這不是已發布的 /exec 網址，請回到 Apps Script 複製網頁應用程式網址。";
+    urlCheck.classList.add("is-error");
+    urlCheck.classList.remove("is-valid");
+  }
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.append(area);
+  area.select();
+  const copied = document.execCommand("copy");
+  area.remove();
+  if (!copied) throw new Error("瀏覽器不允許複製，請改用 GitHub 原始檔");
+}
+
+async function copyGoogleSetupFile(button) {
+  const file = button.dataset.googleCopyFile;
+  button.disabled = true;
+  try {
+    const response = await fetch(`./backend/apps-script/${file}?v=8`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`讀取 ${file} 失敗`);
+    await copyText(await response.text());
+    if (!state.googleSetup.copiedFiles.includes(file)) state.googleSetup.copiedFiles.push(file);
+    saveGoogleSetup();
+    showToast(`${file} 已複製，可以貼到 Apps Script`);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function applyGoogleHealth(health) {
   const connected = Boolean(health && health.initialized);
   $("#google-backup-button").disabled = !connected;
@@ -628,6 +712,7 @@ function applyGoogleHealth(health) {
   setGoogleBackendStatus(connected
     ? `Google 後端已驗證；雲端版本 ${health.revision}${health.hasBackup ? "，已有備份" : "，尚無備份"}。`
     : "Google 後端尚未初始化；不影響本機使用。");
+  renderGoogleSetup();
 }
 
 async function saveGoogleState(health) {
@@ -651,6 +736,7 @@ async function connectGoogleBackend() {
     state.googleBridge = await new GoogleBackendBridge().connect($("#google-backend-url").value);
     const health = await state.googleBridge.request("initialize");
     await saveGoogleState(health);
+    $("#google-setup-guide").open = false;
     showToast("Google 後端已初始化並通過檢查");
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
@@ -835,13 +921,22 @@ function bindEvents() {
   $("#calculator-copy-button").addEventListener("click", copyCalculatorResult);
   document.addEventListener("keydown", handleCalculatorKeyboard);
 
-  $("#settings-button").addEventListener("click", () => $("#settings-dialog").showModal());
+  $("#settings-button").addEventListener("click", () => {
+    renderGoogleSetup();
+    $("#settings-dialog").showModal();
+  });
   $("#close-settings-button").addEventListener("click", () => $("#settings-dialog").close());
   $("#close-linked-task-button").addEventListener("click", () => $("#linked-task-dialog").close());
   $("#dismiss-linked-task-button").addEventListener("click", () => $("#linked-task-dialog").close());
   $("#export-json-button").addEventListener("click", exportJson);
   $("#export-csv-button").addEventListener("click", exportCsv);
   $("#import-json-input").addEventListener("change", (event) => event.target.files[0] && loadImportFile(event.target.files[0]));
+  $("#google-script-open-button").addEventListener("click", () => {
+    state.googleSetup.projectOpened = true;
+    saveGoogleSetup();
+  });
+  $$("[data-google-copy-file]").forEach((button) => button.addEventListener("click", () => copyGoogleSetupFile(button)));
+  $("#google-backend-url").addEventListener("input", renderGoogleSetup);
   $("#google-connect-button").addEventListener("click", connectGoogleBackend);
   $("#google-backup-button").addEventListener("click", backupToGoogle);
   $("#google-restore-button").addEventListener("click", restoreFromGoogle);
@@ -873,6 +968,7 @@ async function start() {
       $("#google-backend-url").value = state.googleBackend.url;
       setGoogleBackendStatus("已儲存後端網址；請按「連接並初始化」重新驗證 Google 授權與資源狀態。");
     }
+    renderGoogleSetup();
     await refresh();
     checkDueNotifications();
     openLinkedTask();
