@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "../src/google-backend.js";
+import { GoogleBackendBridge, googleControlState, isRetryableGoogleError, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "../src/google-backend.js";
 
 const codeGs = readFileSync(new URL("../backend/apps-script/Code.gs", import.meta.url), "utf8");
+const appJs = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
 
 test("accepts an Apps Script exec URL and removes query data", () => {
   assert.equal(
@@ -111,11 +112,32 @@ test("setup progress only requires the single Code.gs file", () => {
   assert.equal(progress.steps.deploy, false);
 });
 
+test("Google controls only enable restore after a successful backup", () => {
+  assert.deepEqual(googleControlState(null), {
+    connected: false, hasBackup: false, backupDisabled: true, restoreDisabled: true
+  });
+  assert.deepEqual(googleControlState({ initialized: true, hasBackup: false }), {
+    connected: true, hasBackup: false, backupDisabled: false, restoreDisabled: true
+  });
+  assert.deepEqual(googleControlState({ initialized: true, hasBackup: true }), {
+    connected: true, hasBackup: true, backupDisabled: false, restoreDisabled: false
+  });
+  assert.equal(googleControlState({ initialized: true, hasBackup: true }, "backup").restoreDisabled, true);
+});
+
+test("mobile reconnect initializes the backend and bridge failures are retryable", () => {
+  assert.match(appJs, /reconnectGoogleBackendSilently[\s\S]*?requestGoogleBackend\("initialize"\)/);
+  assert.equal(isRetryableGoogleError(new Error("Google 後端回應逾時")), true);
+  assert.equal(isRetryableGoogleError(new Error("備份格式不相容")), false);
+});
+
 test("Code.gs is a self-contained setup and bridge bundle", () => {
   assert.doesNotThrow(() => new Function(codeGs));
   assert.match(codeGs, /function setup\(\)/);
   assert.match(codeGs, /createHtmlOutput\(buildBridgePage_\(origin, returnUrl\)\)/);
   assert.match(codeGs, /回到拾記完成連線/);
+  assert.match(codeGs, /lastRequestId/);
+  assert.match(codeGs, /duplicate: true/);
   assert.match(codeGs, /setXFrameOptionsMode\(HtmlService\.XFrameOptionsMode\.ALLOWALL\)/);
   assert.match(codeGs, /replace\(\/\^sha256:/);
   assert.doesNotMatch(codeGs, /createTemplateFromFile/);

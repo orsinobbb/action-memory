@@ -1,5 +1,5 @@
 const ACTION_MEMORY = Object.freeze({
-  version: "0.4.0",
+  version: "0.5.0",
   folderName: "拾記 Action Memory",
   spreadsheetName: "拾記雲端備份索引",
   maxBackupBytes: 5 * 1024 * 1024,
@@ -14,6 +14,8 @@ const PROPERTY_KEYS = Object.freeze({
   folderId: "action_memory_folder_id",
   spreadsheetId: "action_memory_spreadsheet_id",
   latestFileId: "action_memory_latest_file_id",
+  lastRequestId: "action_memory_last_request_id",
+  lastRequestRevision: "action_memory_last_request_revision",
   revision: "action_memory_revision",
   createdAt: "action_memory_created_at"
 });
@@ -181,13 +183,16 @@ function pushBackup_(request) {
 
     const properties = PropertiesService.getUserProperties();
     const currentRevision = Number(properties.getProperty(PROPERTY_KEYS.revision) || 0);
+    const requestId = String(request.requestId || "");
+    if (!requestId) throw new Error("缺少 requestId");
+    if (requestId === properties.getProperty(PROPERTY_KEYS.lastRequestId)) {
+      return Object.assign({ ok: true, duplicate: true, revision: currentRevision }, backendHealth_());
+    }
     const baseRevision = Number(request.baseRevision);
     if (!Number.isFinite(baseRevision) || baseRevision !== currentRevision) {
       return { ok: false, conflict: true, revision: currentRevision, message: "雲端版本已變更，未覆寫資料" };
     }
 
-    const requestId = String(request.requestId || "");
-    if (!requestId) throw new Error("缺少 requestId");
     const json = JSON.stringify(backup);
     if (Utilities.newBlob(json).getBytes().length > ACTION_MEMORY.maxBackupBytes) throw new Error("備份超過 5 MB 上限");
 
@@ -203,8 +208,12 @@ function pushBackup_(request) {
     spreadsheet.getSheetByName("Events").appendRow([
       new Date().toISOString(), "backup_pushed", String(request.deviceId || "unknown"), requestId, nextRevision
     ]);
-    properties.setProperty(PROPERTY_KEYS.latestFileId, file.getId());
-    properties.setProperty(PROPERTY_KEYS.revision, String(nextRevision));
+    properties.setProperties({
+      [PROPERTY_KEYS.latestFileId]: file.getId(),
+      [PROPERTY_KEYS.revision]: String(nextRevision),
+      [PROPERTY_KEYS.lastRequestId]: requestId,
+      [PROPERTY_KEYS.lastRequestRevision]: String(nextRevision)
+    });
     return Object.assign({ ok: true, revision: nextRevision, checksum: backup.checksum }, backendHealth_());
   } finally {
     lock.releaseLock();

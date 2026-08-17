@@ -1,17 +1,17 @@
 const CACHE_PREFIX = "action-memory-root-";
-const CACHE_NAME = `${CACHE_PREFIX}v13`;
+const CACHE_NAME = `${CACHE_PREFIX}v14`;
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=13",
+  "./styles.css?v=14",
   "./manifest.webmanifest",
   "./icons/icon.svg",
-  "./src/app.js?v=13",
+  "./src/app.js?v=14",
   "./src/calculator.js?v=9",
   "./src/core.js?v=9",
   "./src/db.js?v=9",
-  "./src/google-backend.js?v=13",
-  "./backend/apps-script/Code.gs?v=13"
+  "./src/google-backend.js?v=14",
+  "./backend/apps-script/Code.gs?v=14"
 ];
 
 self.addEventListener("install", (event) => {

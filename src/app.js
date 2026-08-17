@@ -39,7 +39,7 @@ import {
   setSetting,
   updateTask
 } from "./db.js?v=9";
-import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=13";
+import { GOOGLE_SETUP_FILES, GoogleBackendBridge, googleControlState, isRetryableGoogleError, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=14";
 import { calculatorReducer, createCalculatorState } from "./calculator.js?v=9";
 
 const GOOGLE_BACKEND_SETTING = "googleBackend";
@@ -59,6 +59,7 @@ const state = {
   googleBackend: null,
   googleBridge: null,
   googleConnecting: false,
+  googleBusy: false,
   googleSetup: loadGoogleSetup()
 };
 
@@ -687,7 +688,7 @@ async function copyGoogleSetupFile(button) {
   const file = button.dataset.googleCopyFile;
   button.disabled = true;
   try {
-    const response = await fetch(`./backend/apps-script/${file}?v=13`, { cache: "no-store" });
+    const response = await fetch(`./backend/apps-script/${file}?v=14`, { cache: "no-store" });
     if (!response.ok) throw new Error(`讀取 ${file} 失敗`);
     await copyText(await response.text());
     if (!state.googleSetup.copiedFiles.includes(file)) state.googleSetup.copiedFiles.push(file);
@@ -700,19 +701,28 @@ async function copyGoogleSetupFile(button) {
   }
 }
 
-function applyGoogleHealth(health) {
-  const connected = Boolean(health && health.initialized);
-  $("#google-backup-button").disabled = !connected;
-  $("#google-restore-button").disabled = !connected || !health.hasBackup;
+function applyGoogleHealth(health, { updateStatus = true } = {}) {
+  const controls = googleControlState(health, state.googleBusy);
+  const connected = controls.connected;
+  const backupButton = $("#google-backup-button");
+  const restoreButton = $("#google-restore-button");
+  backupButton.disabled = controls.backupDisabled;
+  restoreButton.disabled = controls.restoreDisabled;
+  backupButton.textContent = state.googleBusy === "backup" ? "正在備份…" : "一鍵備份目前資料";
+  restoreButton.textContent = state.googleBusy === "restore"
+    ? "正在讀取備份…"
+    : controls.hasBackup ? "一鍵還原雲端備份" : "尚無雲端備份可還原";
   const sheetLink = $("#google-sheet-link");
   sheetLink.hidden = !connected || !health.spreadsheetUrl;
   if (health.spreadsheetUrl) sheetLink.href = health.spreadsheetUrl;
   $("#sync-state").innerHTML = connected
     ? `<i></i> 本機優先 · Google 版本 ${health.revision}`
     : "<i></i> 資料僅儲存在這台裝置";
-  setGoogleBackendStatus(connected
-    ? `Google 已連接；雲端版本 ${health.revision}${health.hasBackup ? "，可一鍵還原" : "，尚無備份"}。`
-    : "Google 後端尚未初始化；不影響本機使用。");
+  if (updateStatus) {
+    setGoogleBackendStatus(connected
+      ? `Google 已連接；雲端版本 ${health.revision}${health.hasBackup ? "，備份與還原皆可使用" : "，請先進行第一次備份，完成後還原會自動開啟"}。`
+      : "Google 後端尚未初始化；不影響本機使用。");
+  }
   renderGoogleSetup();
 }
 
@@ -769,53 +779,71 @@ async function ensureGoogleBridge() {
   if (state.googleBridge && state.googleBridge.ready) return state.googleBridge;
   const rawUrl = $("#google-backend-url").value || (state.googleBackend && state.googleBackend.url);
   if (!rawUrl) throw new Error("請先貼上 Apps Script /exec 網址並完成連接");
-  const bridge = await new GoogleBackendBridge({ timeoutMs: 15000 }).connect(rawUrl, { authorize: false });
+  const bridge = await new GoogleBackendBridge({ readyTimeoutMs: 30000, requestTimeoutMs: 120000 }).connect(rawUrl, { authorize: false });
   if (state.googleBridge) state.googleBridge.close();
   state.googleBridge = bridge;
   return bridge;
 }
 
+async function requestGoogleBackend(action, payload = {}, { retry = true } = {}) {
+  try {
+    const bridge = await ensureGoogleBridge();
+    return await bridge.request(action, payload);
+  } catch (error) {
+    if (!retry || !isRetryableGoogleError(error)) throw error;
+    setGoogleBackendStatus("Google 連線暫時中斷，正在自動重連並重試…");
+    if (state.googleBridge) state.googleBridge.close();
+    state.googleBridge = null;
+    const bridge = await ensureGoogleBridge();
+    return bridge.request(action, payload);
+  }
+}
+
 async function reconnectGoogleBackendSilently() {
   try {
-    setGoogleBackendStatus("正在自動確認 Google 連線…");
-    const bridge = await ensureGoogleBridge();
-    const health = await bridge.request("health");
+    setGoogleBackendStatus("正在自動確認並初始化 Google 連線…");
+    const health = await requestGoogleBackend("initialize");
     await saveGoogleState(health);
+    if (health.initialized) $("#google-setup-guide").open = false;
   } catch (error) {
-    setGoogleBackendStatus("已記住 Google 網址；若要重新授權，請按「連接並驗證」。");
+    applyGoogleHealth(state.googleBackend, { updateStatus: false });
+    setGoogleBackendStatus(`Google 尚未完成連接：${error.message} 請按「連接並驗證」重新授權。`, true);
   }
 }
 
 async function backupToGoogle() {
-  const button = $("#google-backup-button");
-  button.disabled = true;
+  state.googleBusy = "backup";
+  applyGoogleHealth(state.googleBackend);
   setGoogleBackendStatus("正在把目前資料以單一 JSON 備份到 Google…");
   try {
-    const bridge = await ensureGoogleBridge();
     const backup = await createBackup({ tasks: state.tasks, relations: state.relations, events: state.events });
-    const result = await bridge.request("push", {
+    const result = await requestGoogleBackend("push", {
       backup,
       baseRevision: state.googleBackend.revision,
       deviceId: "web-" + window.location.hostname,
       requestId: createId("backup")
     });
-    if (result.conflict) throw new Error(`雲端已有版本 ${result.revision}，本次未覆寫；請先讀取雲端備份。`);
+    if (result.conflict) {
+      const health = await requestGoogleBackend("health", {}, { retry: false });
+      await saveGoogleState(health);
+      throw new Error(`雲端已有版本 ${result.revision}，本次未覆寫；請先還原雲端資料，再重新備份。`);
+    }
     await saveGoogleState(result);
     showToast(`已備份 ${state.tasks.length} 件事項到 Google（版本 ${result.revision}）`);
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
   } finally {
-    button.disabled = false;
+    state.googleBusy = false;
+    applyGoogleHealth(state.googleBackend, { updateStatus: false });
   }
 }
 
 async function restoreFromGoogle() {
-  const button = $("#google-restore-button");
-  button.disabled = true;
+  state.googleBusy = "restore";
+  applyGoogleHealth(state.googleBackend);
   setGoogleBackendStatus("正在讀取 Google 備份…");
   try {
-    const bridge = await ensureGoogleBridge();
-    const result = await bridge.request("pull");
+    const result = await requestGoogleBackend("pull");
     if (!result.backup) throw new Error("Google 後端目前沒有備份");
     const validation = await validateBackup(result.backup);
     if (!validation.valid) throw new Error(validation.reason);
@@ -839,7 +867,8 @@ async function restoreFromGoogle() {
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
   } finally {
-    button.disabled = false;
+    state.googleBusy = false;
+    applyGoogleHealth(state.googleBackend, { updateStatus: false });
   }
 }
 

@@ -36,9 +36,25 @@ export function summarizeGoogleSetup({ projectOpened = false, copiedFiles = [], 
   };
 }
 
+export function googleControlState(health, busy = false) {
+  const connected = Boolean(health && health.initialized);
+  const hasBackup = Boolean(connected && health.hasBackup);
+  return {
+    connected,
+    hasBackup,
+    backupDisabled: Boolean(busy || !connected),
+    restoreDisabled: Boolean(busy || !hasBackup)
+  };
+}
+
+export function isRetryableGoogleError(error) {
+  return /逾時|中斷|尚未收到 Google 回應/.test(String(error && error.message ? error.message : error));
+}
+
 export class GoogleBackendBridge {
-  constructor({ timeoutMs = 120000 } = {}) {
-    this.timeoutMs = timeoutMs;
+  constructor({ timeoutMs = 120000, readyTimeoutMs = timeoutMs, requestTimeoutMs = timeoutMs } = {}) {
+    this.readyTimeoutMs = readyTimeoutMs;
+    this.requestTimeoutMs = requestTimeoutMs;
     this.authTab = null;
     this.bridgeFrame = null;
     this.bridgeWindow = null;
@@ -70,7 +86,7 @@ export class GoogleBackendBridge {
       await new Promise((resolve, reject) => {
         this.readyResolve = resolve;
         this.readyReject = reject;
-        this.readyTimer = setTimeout(() => reject(new Error("尚未收到 Google 回應。若已授權，請確認 Apps Script 已更新為最新版並重新部署。")), this.timeoutMs);
+        this.readyTimer = setTimeout(() => reject(new Error("尚未收到 Google 回應。若已授權，請確認 Apps Script 已更新為最新版並重新部署。")), this.readyTimeoutMs);
       });
     } catch (error) {
       this.close();
@@ -119,6 +135,7 @@ export class GoogleBackendBridge {
     const isGoogleScript = sender.hostname === "script.google.com" || sender.hostname === "script.googleusercontent.com" || sender.hostname.endsWith(".googleusercontent.com");
     if (sender.protocol !== "https:" || !isGoogleScript || !event.data || event.data.source !== SOURCE_GAS) return;
     if (event.data.type === "ready") {
+      if (this.bridgeFrame && this.bridgeFrame.contentWindow && event.source !== this.bridgeFrame.contentWindow) return;
       this.bridgeWindow = event.source;
       clearTimeout(this.readyTimer);
       clearInterval(this.retryTimer);
@@ -142,7 +159,7 @@ export class GoogleBackendBridge {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         reject(new Error("Google 後端回應逾時"));
-      }, this.timeoutMs);
+      }, this.requestTimeoutMs);
       this.pending.set(requestId, { resolve, reject, timer });
       this.bridgeWindow.postMessage({ source: SOURCE_WEB, requestId, action, payload }, "*");
     });
