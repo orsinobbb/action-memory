@@ -1,5 +1,5 @@
 const ACTION_MEMORY = Object.freeze({
-  version: "0.3.0",
+  version: "0.4.0",
   folderName: "拾記 Action Memory",
   spreadsheetName: "拾記雲端備份索引",
   maxBackupBytes: 5 * 1024 * 1024,
@@ -23,9 +23,16 @@ function doGet(e) {
   if (ACTION_MEMORY.allowedOrigins.indexOf(origin) === -1) {
     return HtmlService.createHtmlOutput("此來源未獲拾記後端允許。");
   }
-  return HtmlService.createHtmlOutput(buildBridgePage_(origin))
+  const returnUrl = allowedReturnUrl_((e && e.parameter && e.parameter.return) || "", origin);
+  return HtmlService.createHtmlOutput(buildBridgePage_(origin, returnUrl))
     .setTitle("拾記 Google 連接")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function allowedReturnUrl_(value, allowedOrigin) {
+  const returnUrl = String(value || "");
+  if (returnUrl.indexOf(allowedOrigin + "/") === 0) return returnUrl;
+  return allowedOrigin + "/action-memory/?google-return=1";
 }
 
 function setup() {
@@ -36,8 +43,9 @@ function setup() {
   return health;
 }
 
-function buildBridgePage_(allowedOrigin) {
+function buildBridgePage_(allowedOrigin, returnUrl) {
   const originJson = JSON.stringify(allowedOrigin).replace(/</g, "\\u003c");
+  const returnJson = JSON.stringify(returnUrl).replace(/</g, "\\u003c");
   const versionJson = JSON.stringify(ACTION_MEMORY.version).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="zh-Hant">
@@ -49,13 +57,15 @@ function buildBridgePage_(allowedOrigin) {
     <style>
       body { margin: 0; padding: 28px; color: #153a35; background: #f7f6f1; font: 16px/1.6 system-ui, sans-serif; }
       main { max-width: 420px; margin: 12vh auto; padding: 24px; background: white; border-radius: 24px; box-shadow: 0 18px 55px #163b321c; }
+      .return-button { display: block; margin: 22px 0 16px; padding: 14px 18px; color: white; background: #154f46; border-radius: 14px; font-weight: 700; text-align: center; text-decoration: none; }
       small { color: #657a76; }
     </style>
   </head>
   <body>
-    <main><h1>拾記 Google 連接</h1><p id="status">Google 已授權。請回到拾記，系統會自動完成連線。</p><small>後端版本 <span id="version"></span></small></main>
+    <main><h1>拾記 Google 連接</h1><p id="status">Google 已授權。手機請按下方按鈕回到拾記；電腦會自動完成。</p><a class="return-button" id="return-button">回到拾記完成連線</a><small>後端版本 <span id="version"></span></small></main>
     <script>
       const allowedOrigin = ${originJson};
+      document.getElementById("return-button").href = ${returnJson};
       document.getElementById("version").textContent = ${versionJson};
       const statusNode = document.getElementById("status");
       function reply(message, target) {

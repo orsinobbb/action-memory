@@ -37,7 +37,7 @@ npm.cmd run serve
 
 ## 可選 Google 後端
 
-網站的「設定與備份」內建 Apps Script 安裝精靈，可一鍵開啟新專案並複製單一 `Code.gs`。使用者執行 `setup()` 後會完成 Google 授權及 Drive／Sheets 儲存資源初始化；Google 基於安全規則仍要求使用者親自部署網頁應用程式。貼回 `/exec` 網址後，拾記會自動恢復連線：一鍵把目前完整 JSON 備份到 Google，或經一次確認直接還原，不會再開啟本機檔案選擇器。完整權限邊界另見 [`backend/apps-script/README.md`](./backend/apps-script/README.md)。
+網站的「設定與備份」內建 Apps Script 安裝精靈，可一鍵開啟新專案並複製單一 `Code.gs`。使用者執行 `setup()` 後會完成 Google 授權及 Drive／Sheets 儲存資源初始化；Google 基於安全規則仍要求使用者親自部署網頁應用程式。貼回 `/exec` 網址後，拾記會自動恢復連線；手機 Safari 可由 Google 授權頁按「回到拾記完成連線」直接返回。一鍵備份與還原都不會再開啟本機檔案選擇器。完整權限邊界另見 [`backend/apps-script/README.md`](./backend/apps-script/README.md)。
 
 ## 隱私與提醒限制
 

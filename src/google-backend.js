@@ -44,6 +44,7 @@ export class GoogleBackendBridge {
     this.bridgeWindow = null;
     this.pending = new Map();
     this.ready = false;
+    this.retryTimer = null;
     this.handleMessage = this.handleMessage.bind(this);
     this.handleReturn = this.handleReturn.bind(this);
   }
@@ -53,6 +54,7 @@ export class GoogleBackendBridge {
     window.addEventListener("message", this.handleMessage);
     document.addEventListener("visibilitychange", this.handleReturn);
     window.addEventListener("focus", this.handleReturn);
+    window.addEventListener("pageshow", this.handleReturn);
     if (authorize) {
       this.authTab = window.open(this.bridgeUrl(), "_blank");
       if (!this.authTab) {
@@ -61,6 +63,9 @@ export class GoogleBackendBridge {
       }
     }
     this.mountFrame();
+    this.retryTimer = setInterval(() => {
+      if (!this.ready && document.visibilityState === "visible") this.mountFrame();
+    }, 6000);
     try {
       await new Promise((resolve, reject) => {
         this.readyResolve = resolve;
@@ -77,7 +82,16 @@ export class GoogleBackendBridge {
   bridgeUrl() {
     const url = new URL(this.url);
     url.searchParams.set("origin", window.location.origin);
+    url.searchParams.set("return", this.returnUrl());
     return url.href;
+  }
+
+  returnUrl() {
+    const current = new URL(window.location.href || `${window.location.origin}/`);
+    current.hash = "";
+    current.search = "";
+    current.searchParams.set("google-return", "1");
+    return current.href;
   }
 
   mountFrame() {
@@ -92,7 +106,11 @@ export class GoogleBackendBridge {
   }
 
   handleReturn() {
-    if (!this.ready && document.visibilityState === "visible") this.mountFrame();
+    if (!this.ready && document.visibilityState === "visible") this.refresh();
+  }
+
+  refresh() {
+    if (!this.ready) this.mountFrame();
   }
 
   handleMessage(event) {
@@ -103,6 +121,7 @@ export class GoogleBackendBridge {
     if (event.data.type === "ready") {
       this.bridgeWindow = event.source;
       clearTimeout(this.readyTimer);
+      clearInterval(this.retryTimer);
       this.ready = true;
       this.readyResolve && this.readyResolve();
       return;
@@ -132,8 +151,10 @@ export class GoogleBackendBridge {
   close() {
     window.removeEventListener("message", this.handleMessage);
     window.removeEventListener("focus", this.handleReturn);
+    window.removeEventListener("pageshow", this.handleReturn);
     document.removeEventListener("visibilitychange", this.handleReturn);
     clearTimeout(this.readyTimer);
+    clearInterval(this.retryTimer);
     if (this.bridgeFrame) this.bridgeFrame.remove();
     if (this.authTab && !this.authTab.closed) this.authTab.close();
     this.bridgeFrame = null;

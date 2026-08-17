@@ -39,7 +39,7 @@ import {
   setSetting,
   updateTask
 } from "./db.js?v=9";
-import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=12";
+import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=13";
 import { calculatorReducer, createCalculatorState } from "./calculator.js?v=9";
 
 const GOOGLE_BACKEND_SETTING = "googleBackend";
@@ -58,6 +58,7 @@ const state = {
   calculator: createCalculatorState(),
   googleBackend: null,
   googleBridge: null,
+  googleConnecting: false,
   googleSetup: loadGoogleSetup()
 };
 
@@ -686,7 +687,7 @@ async function copyGoogleSetupFile(button) {
   const file = button.dataset.googleCopyFile;
   button.disabled = true;
   try {
-    const response = await fetch(`./backend/apps-script/${file}?v=12`, { cache: "no-store" });
+    const response = await fetch(`./backend/apps-script/${file}?v=13`, { cache: "no-store" });
     if (!response.ok) throw new Error(`讀取 ${file} 失敗`);
     await copyText(await response.text());
     if (!state.googleSetup.copiedFiles.includes(file)) state.googleSetup.copiedFiles.push(file);
@@ -730,11 +731,27 @@ async function saveGoogleState(health) {
 
 async function connectGoogleBackend() {
   const button = $("#google-connect-button");
-  button.disabled = true;
-  setGoogleBackendStatus("Google 授權分頁已開啟；完成後直接回到拾記，系統會自動連接並更新狀態。");
+  if (state.googleConnecting && state.googleBridge) {
+    state.googleBridge.refresh();
+    setGoogleBackendStatus("正在重新檢查 Google 授權，請稍候…");
+    return;
+  }
   try {
+    const url = normalizeGoogleBackendUrl($("#google-backend-url").value);
+    state.googleBackend = {
+      revision: 0,
+      initialized: false,
+      hasBackup: false,
+      ...(state.googleBackend || {}),
+      url
+    };
+    await setSetting(GOOGLE_BACKEND_SETTING, state.googleBackend);
+    state.googleConnecting = true;
+    button.textContent = "授權完成，立即檢查";
+    setGoogleBackendStatus("Google 授權分頁已開啟；手機授權後請按「回到拾記完成連線」。");
     if (state.googleBridge) state.googleBridge.close();
-    state.googleBridge = await new GoogleBackendBridge().connect($("#google-backend-url").value, { authorize: true });
+    state.googleBridge = new GoogleBackendBridge();
+    await state.googleBridge.connect(url, { authorize: true });
     const health = await state.googleBridge.request("initialize");
     await saveGoogleState(health);
     $("#google-setup-guide").open = false;
@@ -742,6 +759,8 @@ async function connectGoogleBackend() {
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
   } finally {
+    state.googleConnecting = false;
+    button.textContent = "連接並驗證";
     button.disabled = false;
   }
 }
@@ -1001,13 +1020,19 @@ function bindEvents() {
 async function start() {
   bindEvents();
   try {
+    const returnedFromGoogle = new URLSearchParams(window.location.search).has("google-return");
     state.googleBackend = await getSetting(GOOGLE_BACKEND_SETTING);
     if (state.googleBackend && state.googleBackend.url) {
       $("#google-backend-url").value = state.googleBackend.url;
-      setGoogleBackendStatus("已記住 Google 網址，正在自動恢復連線…");
+      setGoogleBackendStatus(returnedFromGoogle ? "已從 Google 授權頁返回，正在完成連線…" : "已記住 Google 網址，正在自動恢復連線…");
     }
     renderGoogleSetup();
     await refresh();
+    if (returnedFromGoogle) {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("google-return");
+      window.history.replaceState({}, "", cleanUrl.href);
+    }
     if (state.googleBackend && state.googleBackend.url) reconnectGoogleBackendSilently();
     checkDueNotifications();
     openLinkedTask();

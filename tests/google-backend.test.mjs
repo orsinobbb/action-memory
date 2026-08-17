@@ -32,7 +32,7 @@ test("opens Google authorization in a normal separate tab", async () => {
     postMessage(message) { bridgeMessages.push(message); }
   };
   globalThis.window = {
-    location: { origin: "https://orsinobbb.github.io" },
+    location: { origin: "https://orsinobbb.github.io", href: "https://orsinobbb.github.io/action-memory/" },
     open(...args) {
       openCalls.push(args);
       return authTab;
@@ -67,6 +67,7 @@ test("opens Google authorization in a normal separate tab", async () => {
     assert.equal(openCalls[0].length, 2);
     assert.equal(frames.length, 1);
     assert.match(frames[0].src, /origin=https%3A%2F%2Forsinobbb\.github\.io/);
+    assert.match(frames[0].src, /return=https%3A%2F%2Forsinobbb\.github\.io%2Faction-memory%2F%3Fgoogle-return%3D1/);
 
     const request = bridge.request("initialize");
     assert.equal(bridgeMessages.length, 1);
@@ -113,7 +114,8 @@ test("setup progress only requires the single Code.gs file", () => {
 test("Code.gs is a self-contained setup and bridge bundle", () => {
   assert.doesNotThrow(() => new Function(codeGs));
   assert.match(codeGs, /function setup\(\)/);
-  assert.match(codeGs, /createHtmlOutput\(buildBridgePage_\(origin\)\)/);
+  assert.match(codeGs, /createHtmlOutput\(buildBridgePage_\(origin, returnUrl\)\)/);
+  assert.match(codeGs, /回到拾記完成連線/);
   assert.match(codeGs, /setXFrameOptionsMode\(HtmlService\.XFrameOptionsMode\.ALLOWALL\)/);
   assert.match(codeGs, /replace\(\/\^sha256:/);
   assert.doesNotMatch(codeGs, /createTemplateFromFile/);
