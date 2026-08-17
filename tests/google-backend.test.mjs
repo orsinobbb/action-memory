@@ -20,7 +20,9 @@ test("rejects non-Google and editor URLs", () => {
 
 test("opens Google authorization in a normal separate tab", async () => {
   const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
   const openCalls = [];
+  const frames = [];
   const bridgeMessages = [];
   const authTab = {
     closed: false,
@@ -38,6 +40,18 @@ test("opens Google authorization in a normal separate tab", async () => {
     addEventListener() {},
     removeEventListener() {}
   };
+  globalThis.document = {
+    visibilityState: "visible",
+    createElement(tag) {
+      assert.equal(tag, "iframe");
+      const frame = { setAttribute() {}, remove() { this.removed = true; } };
+      frames.push(frame);
+      return frame;
+    },
+    body: { append() {} },
+    addEventListener() {},
+    removeEventListener() {}
+  };
 
   try {
     const bridge = new GoogleBackendBridge({ timeoutMs: 100 });
@@ -51,6 +65,8 @@ test("opens Google authorization in a normal separate tab", async () => {
     assert.equal(openCalls.length, 1);
     assert.equal(openCalls[0][1], "_blank");
     assert.equal(openCalls[0].length, 2);
+    assert.equal(frames.length, 1);
+    assert.match(frames[0].src, /origin=https%3A%2F%2Forsinobbb\.github\.io/);
 
     const request = bridge.request("initialize");
     assert.equal(bridgeMessages.length, 1);
@@ -70,6 +86,8 @@ test("opens Google authorization in a normal separate tab", async () => {
   } finally {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
   }
 });
 
@@ -96,5 +114,7 @@ test("Code.gs is a self-contained setup and bridge bundle", () => {
   assert.doesNotThrow(() => new Function(codeGs));
   assert.match(codeGs, /function setup\(\)/);
   assert.match(codeGs, /createHtmlOutput\(buildBridgePage_\(origin\)\)/);
+  assert.match(codeGs, /setXFrameOptionsMode\(HtmlService\.XFrameOptionsMode\.ALLOWALL\)/);
+  assert.match(codeGs, /replace\(\/\^sha256:/);
   assert.doesNotMatch(codeGs, /createTemplateFromFile/);
 });

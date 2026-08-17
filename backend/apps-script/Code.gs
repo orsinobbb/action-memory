@@ -1,5 +1,5 @@
 const ACTION_MEMORY = Object.freeze({
-  version: "0.2.0",
+  version: "0.3.0",
   folderName: "拾記 Action Memory",
   spreadsheetName: "拾記雲端備份索引",
   maxBackupBytes: 5 * 1024 * 1024,
@@ -23,7 +23,9 @@ function doGet(e) {
   if (ACTION_MEMORY.allowedOrigins.indexOf(origin) === -1) {
     return HtmlService.createHtmlOutput("此來源未獲拾記後端允許。");
   }
-  return HtmlService.createHtmlOutput(buildBridgePage_(origin)).setTitle("拾記 Google 連接");
+  return HtmlService.createHtmlOutput(buildBridgePage_(origin))
+    .setTitle("拾記 Google 連接")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 function setup() {
@@ -51,24 +53,29 @@ function buildBridgePage_(allowedOrigin) {
     </style>
   </head>
   <body>
-    <main><h1>拾記 Google 連接</h1><p id="status">已取得 Google 授權，正在等待拾記。</p><small>後端版本 <span id="version"></span></small></main>
+    <main><h1>拾記 Google 連接</h1><p id="status">Google 已授權。請回到拾記，系統會自動完成連線。</p><small>後端版本 <span id="version"></span></small></main>
     <script>
       const allowedOrigin = ${originJson};
       document.getElementById("version").textContent = ${versionJson};
       const statusNode = document.getElementById("status");
-      function reply(message) { if (window.opener) window.opener.postMessage(message, allowedOrigin); }
+      function reply(message, target) {
+        const targets = target ? [target] : [window.top, window.opener];
+        targets.forEach((item) => {
+          try { if (item) item.postMessage(message, allowedOrigin); } catch (error) {}
+        });
+      }
       window.addEventListener("message", (event) => {
         const message = event.data || {};
-        if (event.origin !== allowedOrigin || event.source !== window.opener || message.source !== "action-memory-web") return;
+        if (event.origin !== allowedOrigin || message.source !== "action-memory-web") return;
         statusNode.textContent = "正在處理「" + message.action + "」…";
         google.script.run
           .withSuccessHandler((result) => {
             statusNode.textContent = "完成，可回到拾記。";
-            reply({ source: "action-memory-gas", requestId: message.requestId, ok: true, result });
+            reply({ source: "action-memory-gas", requestId: message.requestId, ok: true, result }, event.source);
           })
           .withFailureHandler((error) => {
             statusNode.textContent = "未完成：" + (error && error.message ? error.message : "未知錯誤");
-            reply({ source: "action-memory-gas", requestId: message.requestId, ok: false, error: statusNode.textContent });
+            reply({ source: "action-memory-gas", requestId: message.requestId, ok: false, error: statusNode.textContent }, event.source);
           })
           .bridgeCommand({ action: message.action, payload: message.payload || {} });
       });
@@ -198,10 +205,10 @@ function pullBackup_() {
   const health = backendHealth_();
   if (!health.initialized) throw new Error("請先初始化 Google 後端");
   const fileId = PropertiesService.getUserProperties().getProperty(PROPERTY_KEYS.latestFileId);
-  if (!fileId) return { ok: true, revision: health.revision, backup: null };
+  if (!fileId) return Object.assign({ ok: true, backup: null }, health);
   const backup = JSON.parse(DriveApp.getFileById(fileId).getBlob().getDataAsString("UTF-8"));
   validateBackup_(backup);
-  return { ok: true, revision: health.revision, backup: backup };
+  return Object.assign({ ok: true, backup: backup }, health);
 }
 
 function validateBackup_(backup) {
@@ -209,8 +216,9 @@ function validateBackup_(backup) {
   ["tasks", "relations", "events"].forEach(function (key) {
     if (!Array.isArray(backup.payload[key])) throw new Error("備份缺少 " + key);
   });
-  if (!/^[a-f0-9]{64}$/i.test(String(backup.checksum || ""))) throw new Error("備份校驗碼不正確");
-  if (sha256Hex_(JSON.stringify(backup.payload)) !== String(backup.checksum).toLowerCase()) throw new Error("備份內容與校驗碼不符");
+  const checksum = String(backup.checksum || "").replace(/^sha256:/i, "").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(checksum)) throw new Error("備份校驗碼不正確");
+  if (sha256Hex_(JSON.stringify(backup.payload)) !== checksum) throw new Error("備份內容與校驗碼不符");
 }
 
 function sha256Hex_(text) {

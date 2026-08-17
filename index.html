@@ -8,7 +8,7 @@
     <title>拾記｜代辦記憶庫</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=11" />
+    <link rel="stylesheet" href="./styles.css?v=12" />
   </head>
   <body>
     <div class="app-shell">
@@ -338,14 +338,14 @@
                 <span class="setup-step-number">3</span>
                 <div>
                   <strong>執行 setup()，再部署</strong>
-                  <p>上方函式選單選 <code>setup</code> 並按「執行」，同意 Google 授權。完成後選「部署 → 新增部署 → 網頁應用程式」，執行身分選「存取網頁應用程式的使用者」，再複製結尾為 <code>/exec</code> 的網址。</p>
+                  <p>上方函式選單選 <code>setup</code> 並按「執行」，同意 Google 授權。首次使用選「部署 → 新增部署 → 網頁應用程式」；更新過程式碼則選「管理部署作業 → 編輯 → 新版本 → 部署」。執行身分選「存取網頁應用程式的使用者」，再複製結尾為 <code>/exec</code> 的網址。</p>
                 </div>
               </li>
               <li class="setup-step" data-google-step="connect">
                 <span class="setup-step-number">4</span>
                 <div>
                   <strong>貼上網址並驗證</strong>
-                  <p>按下後會另開 Google 授權分頁；完成授權後回到拾記，並保持該分頁開啟。拾記會實際驗證授權與資源。</p>
+                  <p>按下後會另開 Google 授權分頁；完成後直接回到拾記，系統會自動連接並更新狀態，不必再按一次。</p>
                 </div>
               </li>
             </ol>
@@ -357,11 +357,11 @@
           <p class="backend-status" id="google-backend-status" role="status">尚未連接；不影響本機使用。</p>
           <div class="button-stack">
             <button class="primary-button" id="google-connect-button" type="button">連接並驗證</button>
-            <button class="secondary-button" id="google-backup-button" type="button" disabled>立即備份到 Google</button>
-            <button class="secondary-button" id="google-restore-button" type="button" disabled>讀取 Google 備份</button>
+            <button class="secondary-button" id="google-backup-button" type="button" disabled>一鍵備份目前資料</button>
+            <button class="secondary-button" id="google-restore-button" type="button" disabled>一鍵還原雲端備份</button>
             <a class="secondary-button backend-sheet-link" id="google-sheet-link" href="#" target="_blank" rel="noopener" hidden>開啟備份索引表</a>
           </div>
-          <p class="settings-footnote">不會宣稱背景同步；每次送達與版本衝突都會明確回報。</p>
+          <p class="settings-footnote">雲端操作不會要求選擇 JSON 檔；本機匯入／匯出只保留作為手動備援。</p>
         </section>
         <section class="settings-section">
           <h3>提醒</h3>
@@ -386,6 +386,6 @@
       <div class="empty-state"><span>✓</span><p></p></div>
     </template>
 
-    <script type="module" src="./src/app.js?v=11"></script>
+    <script type="module" src="./src/app.js?v=12"></script>
   </body>
 </html>

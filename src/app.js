@@ -39,7 +39,7 @@ import {
   setSetting,
   updateTask
 } from "./db.js?v=9";
-import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=11";
+import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=12";
 import { calculatorReducer, createCalculatorState } from "./calculator.js?v=9";
 
 const GOOGLE_BACKEND_SETTING = "googleBackend";
@@ -686,7 +686,7 @@ async function copyGoogleSetupFile(button) {
   const file = button.dataset.googleCopyFile;
   button.disabled = true;
   try {
-    const response = await fetch(`./backend/apps-script/${file}?v=9`, { cache: "no-store" });
+    const response = await fetch(`./backend/apps-script/${file}?v=12`, { cache: "no-store" });
     if (!response.ok) throw new Error(`讀取 ${file} 失敗`);
     await copyText(await response.text());
     if (!state.googleSetup.copiedFiles.includes(file)) state.googleSetup.copiedFiles.push(file);
@@ -710,7 +710,7 @@ function applyGoogleHealth(health) {
     ? `<i></i> 本機優先 · Google 版本 ${health.revision}`
     : "<i></i> 資料僅儲存在這台裝置";
   setGoogleBackendStatus(connected
-    ? `Google 後端已驗證；雲端版本 ${health.revision}${health.hasBackup ? "，已有備份" : "，尚無備份"}。`
+    ? `Google 已連接；雲端版本 ${health.revision}${health.hasBackup ? "，可一鍵還原" : "，尚無備份"}。`
     : "Google 後端尚未初始化；不影響本機使用。");
   renderGoogleSetup();
 }
@@ -721,6 +721,7 @@ async function saveGoogleState(health) {
     revision: health.revision,
     initialized: health.initialized,
     hasBackup: health.hasBackup,
+    backendVersion: health.backendVersion || null,
     spreadsheetUrl: health.spreadsheetUrl || null
   };
   await setSetting(GOOGLE_BACKEND_SETTING, state.googleBackend);
@@ -730,14 +731,14 @@ async function saveGoogleState(health) {
 async function connectGoogleBackend() {
   const button = $("#google-connect-button");
   button.disabled = true;
-  setGoogleBackendStatus("已另開 Google 授權分頁；完成後請回到拾記，此頁會自動驗證。授權分頁請保持開啟。");
+  setGoogleBackendStatus("Google 授權分頁已開啟；完成後直接回到拾記，系統會自動連接並更新狀態。");
   try {
     if (state.googleBridge) state.googleBridge.close();
-    state.googleBridge = await new GoogleBackendBridge().connect($("#google-backend-url").value);
+    state.googleBridge = await new GoogleBackendBridge().connect($("#google-backend-url").value, { authorize: true });
     const health = await state.googleBridge.request("initialize");
     await saveGoogleState(health);
     $("#google-setup-guide").open = false;
-    showToast("Google 後端已連接並通過檢查");
+    showToast("Google 已連接，可直接備份或還原");
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
   } finally {
@@ -745,14 +746,35 @@ async function connectGoogleBackend() {
   }
 }
 
+async function ensureGoogleBridge() {
+  if (state.googleBridge && state.googleBridge.ready) return state.googleBridge;
+  const rawUrl = $("#google-backend-url").value || (state.googleBackend && state.googleBackend.url);
+  if (!rawUrl) throw new Error("請先貼上 Apps Script /exec 網址並完成連接");
+  const bridge = await new GoogleBackendBridge({ timeoutMs: 15000 }).connect(rawUrl, { authorize: false });
+  if (state.googleBridge) state.googleBridge.close();
+  state.googleBridge = bridge;
+  return bridge;
+}
+
+async function reconnectGoogleBackendSilently() {
+  try {
+    setGoogleBackendStatus("正在自動確認 Google 連線…");
+    const bridge = await ensureGoogleBridge();
+    const health = await bridge.request("health");
+    await saveGoogleState(health);
+  } catch (error) {
+    setGoogleBackendStatus("已記住 Google 網址；若要重新授權，請按「連接並驗證」。");
+  }
+}
+
 async function backupToGoogle() {
   const button = $("#google-backup-button");
   button.disabled = true;
-  setGoogleBackendStatus("正在建立校驗備份並送往 Google…");
+  setGoogleBackendStatus("正在把目前資料以單一 JSON 備份到 Google…");
   try {
-    if (!state.googleBridge || !state.googleBridge.ready) throw new Error("請先按「連接並驗證」重新驗證 Google 授權");
+    const bridge = await ensureGoogleBridge();
     const backup = await createBackup({ tasks: state.tasks, relations: state.relations, events: state.events });
-    const result = await state.googleBridge.request("push", {
+    const result = await bridge.request("push", {
       backup,
       baseRevision: state.googleBackend.revision,
       deviceId: "web-" + window.location.hostname,
@@ -760,9 +782,10 @@ async function backupToGoogle() {
     });
     if (result.conflict) throw new Error(`雲端已有版本 ${result.revision}，本次未覆寫；請先讀取雲端備份。`);
     await saveGoogleState(result);
-    showToast(`Google 備份已送達（版本 ${result.revision}）`);
+    showToast(`已備份 ${state.tasks.length} 件事項到 Google（版本 ${result.revision}）`);
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
+  } finally {
     button.disabled = false;
   }
 }
@@ -772,13 +795,28 @@ async function restoreFromGoogle() {
   button.disabled = true;
   setGoogleBackendStatus("正在讀取 Google 備份…");
   try {
-    if (!state.googleBridge || !state.googleBridge.ready) throw new Error("請先按「連接並驗證」重新驗證 Google 授權");
-    const result = await state.googleBridge.request("pull");
+    const bridge = await ensureGoogleBridge();
+    const result = await bridge.request("pull");
     if (!result.backup) throw new Error("Google 後端目前沒有備份");
-    await showImportPreview(result.backup, `Google 版本 ${result.revision} 校驗通過`);
-    state.googleBackend.revision = result.revision;
-    await setSetting(GOOGLE_BACKEND_SETTING, state.googleBackend);
-    setGoogleBackendStatus("已讀取雲端備份；請在「本機資料」預覽後選擇安全合併或完整取代。");
+    const validation = await validateBackup(result.backup);
+    if (!validation.valid) throw new Error(validation.reason);
+    const cloudTasks = result.backup.payload.tasks.length;
+    if (!confirm(`要以 Google 版本 ${result.revision} 的 ${cloudTasks} 件事項完整還原嗎？目前本機資料會被取代。`)) {
+      setGoogleBackendStatus("已取消還原；本機資料沒有變更。");
+      return;
+    }
+    const eventRecord = makeEvent({
+      entityId: "system",
+      type: "imported",
+      actor: "google",
+      summary: `一鍵還原 Google 備份版本 ${result.revision}`,
+      correlationId: createId("google-restore")
+    });
+    await importData(result.backup.payload, "replace", eventRecord);
+    await saveGoogleState(result);
+    await refresh();
+    setGoogleBackendStatus(`Google 版本 ${result.revision} 已還原，共 ${cloudTasks} 件事項。`);
+    showToast(`已從 Google 還原 ${cloudTasks} 件事項`);
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
   } finally {
@@ -966,10 +1004,11 @@ async function start() {
     state.googleBackend = await getSetting(GOOGLE_BACKEND_SETTING);
     if (state.googleBackend && state.googleBackend.url) {
       $("#google-backend-url").value = state.googleBackend.url;
-      setGoogleBackendStatus("已儲存後端網址；請按「連接並驗證」重新驗證 Google 授權與資源狀態。");
+      setGoogleBackendStatus("已記住 Google 網址，正在自動恢復連線…");
     }
     renderGoogleSetup();
     await refresh();
+    if (state.googleBackend && state.googleBackend.url) reconnectGoogleBackendSilently();
     checkDueNotifications();
     openLinkedTask();
   } catch (error) {

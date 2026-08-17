@@ -40,30 +40,59 @@ export class GoogleBackendBridge {
   constructor({ timeoutMs = 120000 } = {}) {
     this.timeoutMs = timeoutMs;
     this.authTab = null;
+    this.bridgeFrame = null;
     this.bridgeWindow = null;
     this.pending = new Map();
     this.ready = false;
     this.handleMessage = this.handleMessage.bind(this);
+    this.handleReturn = this.handleReturn.bind(this);
   }
 
-  async connect(rawUrl) {
+  async connect(rawUrl, { authorize = true } = {}) {
     this.url = normalizeGoogleBackendUrl(rawUrl);
-    const bridgeUrl = new URL(this.url);
-    bridgeUrl.searchParams.set("origin", window.location.origin);
-    this.authTab = window.open(bridgeUrl.href, "_blank");
-    if (!this.authTab) throw new Error("瀏覽器未能開啟 Google 授權分頁，請允許開啟新分頁後重試");
     window.addEventListener("message", this.handleMessage);
+    document.addEventListener("visibilitychange", this.handleReturn);
+    window.addEventListener("focus", this.handleReturn);
+    if (authorize) {
+      this.authTab = window.open(this.bridgeUrl(), "_blank");
+      if (!this.authTab) {
+        this.close();
+        throw new Error("瀏覽器未能開啟 Google 授權分頁，請允許開啟新分頁後重試");
+      }
+    }
+    this.mountFrame();
     try {
       await new Promise((resolve, reject) => {
         this.readyResolve = resolve;
         this.readyReject = reject;
-        this.readyTimer = setTimeout(() => reject(new Error("等待 Google 授權分頁逾時；完成授權後回到拾記，再按一次「連接並驗證」")), this.timeoutMs);
+        this.readyTimer = setTimeout(() => reject(new Error("尚未收到 Google 回應。若已授權，請確認 Apps Script 已更新為最新版並重新部署。")), this.timeoutMs);
       });
     } catch (error) {
       this.close();
       throw error;
     }
     return this;
+  }
+
+  bridgeUrl() {
+    const url = new URL(this.url);
+    url.searchParams.set("origin", window.location.origin);
+    return url.href;
+  }
+
+  mountFrame() {
+    if (this.bridgeFrame) this.bridgeFrame.remove();
+    const frame = document.createElement("iframe");
+    frame.src = this.bridgeUrl();
+    frame.title = "拾記 Google 資料連線";
+    frame.hidden = true;
+    frame.setAttribute("aria-hidden", "true");
+    document.body.append(frame);
+    this.bridgeFrame = frame;
+  }
+
+  handleReturn() {
+    if (!this.ready && document.visibilityState === "visible") this.mountFrame();
   }
 
   handleMessage(event) {
@@ -102,7 +131,12 @@ export class GoogleBackendBridge {
 
   close() {
     window.removeEventListener("message", this.handleMessage);
+    window.removeEventListener("focus", this.handleReturn);
+    document.removeEventListener("visibilitychange", this.handleReturn);
+    clearTimeout(this.readyTimer);
+    if (this.bridgeFrame) this.bridgeFrame.remove();
     if (this.authTab && !this.authTab.closed) this.authTab.close();
+    this.bridgeFrame = null;
     this.bridgeWindow = null;
     this.ready = false;
   }
