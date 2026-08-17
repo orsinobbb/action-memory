@@ -40,6 +40,7 @@ export class GoogleBackendBridge {
   constructor({ timeoutMs = 120000 } = {}) {
     this.timeoutMs = timeoutMs;
     this.authTab = null;
+    this.bridgeWindow = null;
     this.pending = new Map();
     this.ready = false;
     this.handleMessage = this.handleMessage.bind(this);
@@ -69,13 +70,15 @@ export class GoogleBackendBridge {
     let sender;
     try { sender = new URL(event.origin); } catch { return; }
     const isGoogleScript = sender.hostname === "script.google.com" || sender.hostname === "script.googleusercontent.com" || sender.hostname.endsWith(".googleusercontent.com");
-    if (event.source !== this.authTab || sender.protocol !== "https:" || !isGoogleScript || !event.data || event.data.source !== SOURCE_GAS) return;
+    if (sender.protocol !== "https:" || !isGoogleScript || !event.data || event.data.source !== SOURCE_GAS) return;
     if (event.data.type === "ready") {
+      this.bridgeWindow = event.source;
       clearTimeout(this.readyTimer);
       this.ready = true;
       this.readyResolve && this.readyResolve();
       return;
     }
+    if (!this.bridgeWindow || event.source !== this.bridgeWindow) return;
     const pending = this.pending.get(event.data.requestId);
     if (!pending) return;
     clearTimeout(pending.timer);
@@ -85,7 +88,7 @@ export class GoogleBackendBridge {
   }
 
   request(action, payload = {}) {
-    if (!this.ready || !this.authTab || this.authTab.closed) return Promise.reject(new Error("Google 授權分頁已關閉，請重新連接"));
+    if (!this.ready || !this.bridgeWindow) return Promise.reject(new Error("Google 授權連線已中斷，請重新連接"));
     const requestId = `gas-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -93,13 +96,14 @@ export class GoogleBackendBridge {
         reject(new Error("Google 後端回應逾時"));
       }, this.timeoutMs);
       this.pending.set(requestId, { resolve, reject, timer });
-      this.authTab.postMessage({ source: SOURCE_WEB, requestId, action, payload }, "*");
+      this.bridgeWindow.postMessage({ source: SOURCE_WEB, requestId, action, payload }, "*");
     });
   }
 
   close() {
     window.removeEventListener("message", this.handleMessage);
     if (this.authTab && !this.authTab.closed) this.authTab.close();
+    this.bridgeWindow = null;
     this.ready = false;
   }
 }

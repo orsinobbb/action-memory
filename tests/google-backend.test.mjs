@@ -21,10 +21,13 @@ test("rejects non-Google and editor URLs", () => {
 test("opens Google authorization in a normal separate tab", async () => {
   const originalWindow = globalThis.window;
   const openCalls = [];
+  const bridgeMessages = [];
   const authTab = {
     closed: false,
-    postMessage() {},
     close() { this.closed = true; }
+  };
+  const bridgeFrame = {
+    postMessage(message) { bridgeMessages.push(message); }
   };
   globalThis.window = {
     location: { origin: "https://orsinobbb.github.io" },
@@ -40,14 +43,29 @@ test("opens Google authorization in a normal separate tab", async () => {
     const bridge = new GoogleBackendBridge({ timeoutMs: 100 });
     const connecting = bridge.connect("https://script.google.com/macros/s/abc123/exec");
     bridge.handleMessage({
-      origin: "https://script.google.com",
-      source: authTab,
+      origin: "https://script.googleusercontent.com",
+      source: bridgeFrame,
       data: { source: "action-memory-gas", type: "ready" }
     });
     await connecting;
     assert.equal(openCalls.length, 1);
     assert.equal(openCalls[0][1], "_blank");
     assert.equal(openCalls[0].length, 2);
+
+    const request = bridge.request("initialize");
+    assert.equal(bridgeMessages.length, 1);
+    assert.equal(bridgeMessages[0].action, "initialize");
+    bridge.handleMessage({
+      origin: "https://script.googleusercontent.com",
+      source: bridgeFrame,
+      data: {
+        source: "action-memory-gas",
+        requestId: bridgeMessages[0].requestId,
+        ok: true,
+        result: { initialized: true }
+      }
+    });
+    assert.deepEqual(await request, { initialized: true });
     bridge.close();
   } finally {
     if (originalWindow === undefined) delete globalThis.window;

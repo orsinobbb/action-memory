@@ -39,7 +39,7 @@ import {
   setSetting,
   updateTask
 } from "./db.js?v=9";
-import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=10";
+import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=11";
 import { calculatorReducer, createCalculatorState } from "./calculator.js?v=9";
 
 const GOOGLE_BACKEND_SETTING = "googleBackend";
