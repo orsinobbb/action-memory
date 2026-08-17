@@ -1,16 +1,16 @@
 const CACHE_PREFIX = "action-memory-root-";
-const CACHE_NAME = `${CACHE_PREFIX}v9`;
+const CACHE_NAME = `${CACHE_PREFIX}v10`;
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=9",
+  "./styles.css?v=10",
   "./manifest.webmanifest",
   "./icons/icon.svg",
-  "./src/app.js?v=9",
+  "./src/app.js?v=10",
   "./src/calculator.js?v=9",
   "./src/core.js?v=9",
   "./src/db.js?v=9",
-  "./src/google-backend.js?v=9",
+  "./src/google-backend.js?v=10",
   "./backend/apps-script/Code.gs?v=9"
 ];
 

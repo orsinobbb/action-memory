@@ -39,7 +39,7 @@ export function summarizeGoogleSetup({ projectOpened = false, copiedFiles = [], 
 export class GoogleBackendBridge {
   constructor({ timeoutMs = 120000 } = {}) {
     this.timeoutMs = timeoutMs;
-    this.popup = null;
+    this.authTab = null;
     this.pending = new Map();
     this.ready = false;
     this.handleMessage = this.handleMessage.bind(this);
@@ -49,14 +49,14 @@ export class GoogleBackendBridge {
     this.url = normalizeGoogleBackendUrl(rawUrl);
     const bridgeUrl = new URL(this.url);
     bridgeUrl.searchParams.set("origin", window.location.origin);
-    this.popup = window.open(bridgeUrl.href, "action-memory-google", "popup,width=520,height=700");
-    if (!this.popup) throw new Error("瀏覽器已阻擋 Google 授權視窗，請允許彈出視窗後重試");
+    this.authTab = window.open(bridgeUrl.href, "_blank");
+    if (!this.authTab) throw new Error("瀏覽器未能開啟 Google 授權分頁，請允許開啟新分頁後重試");
     window.addEventListener("message", this.handleMessage);
     try {
       await new Promise((resolve, reject) => {
         this.readyResolve = resolve;
         this.readyReject = reject;
-        this.readyTimer = setTimeout(() => reject(new Error("等待 Google 授權逾時，請確認授權視窗")), this.timeoutMs);
+        this.readyTimer = setTimeout(() => reject(new Error("等待 Google 授權分頁逾時；完成授權後回到拾記，再按一次「連接並驗證」")), this.timeoutMs);
       });
     } catch (error) {
       this.close();
@@ -69,7 +69,7 @@ export class GoogleBackendBridge {
     let sender;
     try { sender = new URL(event.origin); } catch { return; }
     const isGoogleScript = sender.hostname === "script.google.com" || sender.hostname === "script.googleusercontent.com" || sender.hostname.endsWith(".googleusercontent.com");
-    if (event.source !== this.popup || sender.protocol !== "https:" || !isGoogleScript || !event.data || event.data.source !== SOURCE_GAS) return;
+    if (event.source !== this.authTab || sender.protocol !== "https:" || !isGoogleScript || !event.data || event.data.source !== SOURCE_GAS) return;
     if (event.data.type === "ready") {
       clearTimeout(this.readyTimer);
       this.ready = true;
@@ -85,7 +85,7 @@ export class GoogleBackendBridge {
   }
 
   request(action, payload = {}) {
-    if (!this.ready || !this.popup || this.popup.closed) return Promise.reject(new Error("請先重新連接 Google 後端"));
+    if (!this.ready || !this.authTab || this.authTab.closed) return Promise.reject(new Error("Google 授權分頁已關閉，請重新連接"));
     const requestId = `gas-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -93,13 +93,13 @@ export class GoogleBackendBridge {
         reject(new Error("Google 後端回應逾時"));
       }, this.timeoutMs);
       this.pending.set(requestId, { resolve, reject, timer });
-      this.popup.postMessage({ source: SOURCE_WEB, requestId, action, payload }, "*");
+      this.authTab.postMessage({ source: SOURCE_WEB, requestId, action, payload }, "*");
     });
   }
 
   close() {
     window.removeEventListener("message", this.handleMessage);
-    if (this.popup && !this.popup.closed) this.popup.close();
+    if (this.authTab && !this.authTab.closed) this.authTab.close();
     this.ready = false;
   }
 }

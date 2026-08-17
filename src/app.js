@@ -39,7 +39,7 @@ import {
   setSetting,
   updateTask
 } from "./db.js?v=9";
-import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=9";
+import { GOOGLE_SETUP_FILES, GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=10";
 import { calculatorReducer, createCalculatorState } from "./calculator.js?v=9";
 
 const GOOGLE_BACKEND_SETTING = "googleBackend";
@@ -730,7 +730,7 @@ async function saveGoogleState(health) {
 async function connectGoogleBackend() {
   const button = $("#google-connect-button");
   button.disabled = true;
-  setGoogleBackendStatus("請在 Google 視窗完成登入與授權…");
+  setGoogleBackendStatus("已另開 Google 授權分頁；完成後請回到拾記，此頁會自動驗證。授權分頁請保持開啟。");
   try {
     if (state.googleBridge) state.googleBridge.close();
     state.googleBridge = await new GoogleBackendBridge().connect($("#google-backend-url").value);

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { normalizeGoogleBackendUrl, summarizeGoogleSetup } from "../src/google-backend.js";
+import { GoogleBackendBridge, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "../src/google-backend.js";
 
 const codeGs = readFileSync(new URL("../backend/apps-script/Code.gs", import.meta.url), "utf8");
 
@@ -16,6 +16,43 @@ test("rejects non-Google and editor URLs", () => {
   assert.throws(() => normalizeGoogleBackendUrl("https://example.com/macros/s/abc/exec"));
   assert.throws(() => normalizeGoogleBackendUrl("https://script.google.com/home/projects/abc/edit"));
   assert.throws(() => normalizeGoogleBackendUrl("https://script.google.com/macros/s/abc/dev"));
+});
+
+test("opens Google authorization in a normal separate tab", async () => {
+  const originalWindow = globalThis.window;
+  const openCalls = [];
+  const authTab = {
+    closed: false,
+    postMessage() {},
+    close() { this.closed = true; }
+  };
+  globalThis.window = {
+    location: { origin: "https://orsinobbb.github.io" },
+    open(...args) {
+      openCalls.push(args);
+      return authTab;
+    },
+    addEventListener() {},
+    removeEventListener() {}
+  };
+
+  try {
+    const bridge = new GoogleBackendBridge({ timeoutMs: 100 });
+    const connecting = bridge.connect("https://script.google.com/macros/s/abc123/exec");
+    bridge.handleMessage({
+      origin: "https://script.google.com",
+      source: authTab,
+      data: { source: "action-memory-gas", type: "ready" }
+    });
+    await connecting;
+    assert.equal(openCalls.length, 1);
+    assert.equal(openCalls[0][1], "_blank");
+    assert.equal(openCalls[0].length, 2);
+    bridge.close();
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
 });
 
 test("setup progress accepts an existing published backend without replaying manual steps", () => {
