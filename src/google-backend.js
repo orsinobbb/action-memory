@@ -135,7 +135,8 @@ export class GoogleBackendBridge {
     const isGoogleScript = sender.hostname === "script.google.com" || sender.hostname === "script.googleusercontent.com" || sender.hostname.endsWith(".googleusercontent.com");
     if (sender.protocol !== "https:" || !isGoogleScript || !event.data || event.data.source !== SOURCE_GAS) return;
     if (event.data.type === "ready") {
-      if (this.bridgeFrame && this.bridgeFrame.contentWindow && event.source !== this.bridgeFrame.contentWindow) return;
+      // Apps Script renders user HTML inside a nested googleusercontent iframe.
+      // Its message source is therefore not the outer script.google.com iframe.
       this.bridgeWindow = event.source;
       clearTimeout(this.readyTimer);
       clearInterval(this.retryTimer);

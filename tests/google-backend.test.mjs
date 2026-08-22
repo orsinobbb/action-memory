@@ -29,7 +29,7 @@ test("opens Google authorization in a normal separate tab", async () => {
     closed: false,
     close() { this.closed = true; }
   };
-  const bridgeFrame = {
+  const nestedAppsScriptFrame = {
     postMessage(message) { bridgeMessages.push(message); }
   };
   globalThis.window = {
@@ -45,7 +45,11 @@ test("opens Google authorization in a normal separate tab", async () => {
     visibilityState: "visible",
     createElement(tag) {
       assert.equal(tag, "iframe");
-      const frame = { setAttribute() {}, remove() { this.removed = true; } };
+      const frame = {
+        contentWindow: { outerGoogleFrame: true },
+        setAttribute() {},
+        remove() { this.removed = true; }
+      };
       frames.push(frame);
       return frame;
     },
@@ -59,7 +63,7 @@ test("opens Google authorization in a normal separate tab", async () => {
     const connecting = bridge.connect("https://script.google.com/macros/s/abc123/exec");
     bridge.handleMessage({
       origin: "https://script.googleusercontent.com",
-      source: bridgeFrame,
+      source: nestedAppsScriptFrame,
       data: { source: "action-memory-gas", type: "ready" }
     });
     await connecting;
@@ -75,7 +79,7 @@ test("opens Google authorization in a normal separate tab", async () => {
     assert.equal(bridgeMessages[0].action, "initialize");
     bridge.handleMessage({
       origin: "https://script.googleusercontent.com",
-      source: bridgeFrame,
+      source: nestedAppsScriptFrame,
       data: {
         source: "action-memory-gas",
         requestId: bridgeMessages[0].requestId,
