@@ -1,5 +1,5 @@
 const ACTION_MEMORY = Object.freeze({
-  version: "0.5.0",
+  version: "0.5.1",
   folderName: "拾記 Action Memory",
   spreadsheetName: "拾記雲端備份索引",
   maxBackupBytes: 5 * 1024 * 1024,
@@ -178,7 +178,7 @@ function pushBackup_(request) {
   try {
     const health = backendHealth_();
     if (!health.initialized) throw new Error("請先初始化 Google 後端");
-    const backup = request.backup;
+    const backup = request.backupJson ? JSON.parse(String(request.backupJson)) : request.backup;
     validateBackup_(backup);
 
     const properties = PropertiesService.getUserProperties();
@@ -237,7 +237,21 @@ function validateBackup_(backup) {
   });
   const checksum = String(backup.checksum || "").replace(/^sha256:/i, "").toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(checksum)) throw new Error("備份校驗碼不正確");
-  if (sha256Hex_(JSON.stringify(backup.payload)) !== checksum) throw new Error("備份內容與校驗碼不符");
+  const canonical = canonicalJsonValue_(backup.payload);
+  if (sha256Hex_(JSON.stringify(canonical)) !== checksum && sha256Hex_(JSON.stringify(backup.payload)) !== checksum) {
+    throw new Error("備份內容與校驗碼不符");
+  }
+}
+
+function canonicalJsonValue_(value) {
+  if (Array.isArray(value)) return value.map(canonicalJsonValue_);
+  if (value && typeof value === "object") {
+    return Object.keys(value).sort().reduce(function (result, key) {
+      if (value[key] !== undefined) result[key] = canonicalJsonValue_(value[key]);
+      return result;
+    }, {});
+  }
+  return value;
 }
 
 function sha256Hex_(text) {

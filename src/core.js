@@ -328,6 +328,17 @@ export function backupPayload(data) {
   };
 }
 
+function canonicalJsonValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (value && typeof value === "object") {
+    return Object.keys(value).sort().reduce((result, key) => {
+      if (value[key] !== undefined) result[key] = canonicalJsonValue(value[key]);
+      return result;
+    }, {});
+  }
+  return value;
+}
+
 export async function sha256(value) {
   const bytes = new TextEncoder().encode(value);
   const hash = await crypto.subtle.digest("SHA-256", bytes);
@@ -335,7 +346,7 @@ export async function sha256(value) {
 }
 
 export async function createBackup(data, now = new Date()) {
-  const payload = backupPayload(data);
+  const payload = canonicalJsonValue(backupPayload(data));
   const checksum = await sha256(JSON.stringify(payload));
   return { schemaVersion: SCHEMA_VERSION, exportedAt: now.toISOString(), checksum: `sha256:${checksum}`, payload };
 }
@@ -344,8 +355,12 @@ export async function validateBackup(backup) {
   if (!backup || backup.schemaVersion !== SCHEMA_VERSION || !backup.payload) return { valid: false, reason: "不支援的備份格式或版本" };
   const { tasks, relations, events } = backup.payload;
   if (![tasks, relations, events].every(Array.isArray)) return { valid: false, reason: "備份缺少必要資料集合" };
-  const checksum = `sha256:${await sha256(JSON.stringify(backupPayload(backup.payload)))}`;
-  if (checksum !== backup.checksum) return { valid: false, reason: "備份校驗失敗，檔案可能已損毀" };
+  const sortedPayload = backupPayload(backup.payload);
+  const canonicalChecksum = `sha256:${await sha256(JSON.stringify(canonicalJsonValue(sortedPayload)))}`;
+  const legacyChecksum = `sha256:${await sha256(JSON.stringify(sortedPayload))}`;
+  if (canonicalChecksum !== backup.checksum && legacyChecksum !== backup.checksum) {
+    return { valid: false, reason: "備份校驗失敗，檔案可能已損毀" };
+  }
   return { valid: true };
 }
 

@@ -109,7 +109,13 @@ test("Apps Script initializes, backs up, restores, and deduplicates a retry", ()
     payload,
     checksum: `sha256:${createHash("sha256").update(JSON.stringify(payload), "utf8").digest("hex")}`
   };
-  const request = { backup, baseRevision: 0, deviceId: "test", requestId: "request-1" };
+  const request = {
+    backup: { ...backup, payload: { events: [], relations: [], tasks: [{ id: "transport-reordered" }] } },
+    backupJson: JSON.stringify(backup),
+    baseRevision: 0,
+    deviceId: "test",
+    requestId: "request-1"
+  };
   const pushed = runtime.api.pushBackup_(request);
   assert.equal(pushed.revision, 1);
   assert.equal(pushed.hasBackup, true);

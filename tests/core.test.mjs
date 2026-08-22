@@ -89,6 +89,12 @@ test("備份可校驗且內容被修改後會拒絕", async () => {
   assert.equal(invalid.valid, false);
 });
 
+test("相同 JSON 內容不因物件欄位順序不同而產生不同校驗碼", async () => {
+  const first = await createBackup({ tasks: [{ id: "a", title: "A" }], relations: [], events: [] }, now);
+  const second = await createBackup({ tasks: [{ title: "A", id: "a" }], relations: [], events: [] }, now);
+  assert.equal(first.checksum, second.checksum);
+});
+
 test("匯入預覽區分新增、較新與不變", () => {
   const current = { tasks: [task({ id: "same", version: 2 }), task({ id: "older", version: 1 })] };
   const incoming = [task({ id: "same", version: 2 }), task({ id: "older", version: 3 }), task({ id: "new", version: 1 })];

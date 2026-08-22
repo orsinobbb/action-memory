@@ -39,7 +39,7 @@ import {
   setSetting,
   updateTask
 } from "./db.js?v=9";
-import { GOOGLE_SETUP_FILES, GoogleBackendBridge, googleControlState, isRetryableGoogleError, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=15";
+import { GOOGLE_SETUP_FILES, GoogleBackendBridge, googleControlState, isRetryableGoogleError, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=16";
 import { calculatorReducer, createCalculatorState } from "./calculator.js?v=9";
 
 const GOOGLE_BACKEND_SETTING = "googleBackend";
@@ -819,6 +819,7 @@ async function backupToGoogle() {
     const backup = await createBackup({ tasks: state.tasks, relations: state.relations, events: state.events });
     const result = await requestGoogleBackend("push", {
       backup,
+      backupJson: JSON.stringify(backup),
       baseRevision: state.googleBackend.revision,
       deviceId: "web-" + window.location.hostname,
       requestId: createId("backup")
