@@ -372,6 +372,23 @@ dialog::backdrop { background: rgba(13, 28, 24, 0.46); backdrop-filter: blur(3px
 .field small { color: var(--muted); font-size: 0.75rem; line-height: 1.5; }
 .two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .detail-section { margin: 22px 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.attachment-picker-button { display: inline-flex; align-items: center; min-height: 38px; white-space: nowrap; font-size: 0.76rem; }
+.attachment-hint { margin: -2px 0 12px; color: var(--muted); font-size: 0.72rem; line-height: 1.5; }
+.attachment-hint.is-busy { color: var(--green-2); font-weight: 800; }
+.attachment-hint.is-error { color: var(--red); }
+.attachment-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.attachment-empty { grid-column: 1 / -1; padding: 18px 12px; border: 1px dashed var(--line); border-radius: 14px; color: var(--muted); font-size: 0.76rem; text-align: center; }
+.attachment-item { position: relative; min-width: 0; }
+.attachment-preview { display: block; width: 100%; aspect-ratio: 1; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #eef1ed; cursor: pointer; }
+.attachment-preview img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.attachment-placeholder { display: grid; place-items: center; width: 100%; height: 100%; padding: 8px; color: var(--muted); font-size: 0.68rem; line-height: 1.35; text-align: center; }
+.attachment-delete { position: absolute; top: 5px; right: 5px; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid rgba(255,255,255,.7); border-radius: 50%; background: rgba(24,48,43,.82); color: white; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.attachment-meta { margin: 5px 2px 0; overflow: hidden; color: var(--muted); font-size: 0.65rem; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-viewer { width: min(calc(100% - 20px), 920px); max-height: 94dvh; background: #10211e; }
+.attachment-viewer-card { position: relative; display: grid; place-items: center; min-height: 180px; padding: 46px 12px 14px; }
+.attachment-viewer img { display: block; max-width: 100%; max-height: calc(94dvh - 90px); border-radius: 12px; object-fit: contain; }
+.attachment-viewer p { max-width: 100%; margin: 10px 0 0; overflow: hidden; color: rgba(255,255,255,.8); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-viewer-close { position: absolute; z-index: 1; top: 8px; right: 10px; width: 38px; height: 38px; border: 0; border-radius: 50%; background: rgba(255,255,255,.14); color: white; cursor: pointer; font-size: 1.5rem; }
 .relation-list { display: grid; gap: 7px; margin-bottom: 10px; }
 .relation-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 11px; border-radius: 11px; background: #f7f8f4; font-size: 0.78rem; }
 .relation-item button { flex: 0 0 auto; width: 32px; height: 32px; border: 0; border-radius: 50%; background: var(--surface); color: var(--muted); cursor: pointer; }
@@ -479,7 +496,7 @@ dialog::backdrop { background: rgba(13, 28, 24, 0.46); backdrop-filter: blur(3px
   font-size: 0.8rem;
 }
 .toast.is-visible { transform: translate(-50%, 0); opacity: 1; }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.sr-only, .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @media (min-width: 700px) {
   body { padding: 22px 0; }
@@ -496,6 +513,7 @@ dialog::backdrop { background: rgba(13, 28, 24, 0.46); backdrop-filter: blur(3px
   .two-col { grid-template-columns: 1fr; }
   .relation-editor { grid-template-columns: 1fr 1fr; }
   .relation-editor .secondary-button { grid-column: 1 / -1; }
+  .attachment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .calculator-modal { padding: 12px; }
   .calculator-card { padding: 16px; }
   .calculator-key { min-height: 54px; border-radius: 16px; }

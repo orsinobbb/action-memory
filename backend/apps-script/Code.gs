@@ -1,8 +1,10 @@
 const ACTION_MEMORY = Object.freeze({
-  version: "0.5.1",
+  version: "0.6.0",
   folderName: "拾記 Action Memory",
+  attachmentsFolderName: "attachments",
   spreadsheetName: "拾記雲端備份索引",
   maxBackupBytes: 5 * 1024 * 1024,
+  maxAttachmentBytes: 2 * 1024 * 1024,
   allowedOrigins: [
     "https://orsinobbb.github.io",
     "http://localhost:8080",
@@ -12,6 +14,7 @@ const ACTION_MEMORY = Object.freeze({
 
 const PROPERTY_KEYS = Object.freeze({
   folderId: "action_memory_folder_id",
+  attachmentsFolderId: "action_memory_attachments_folder_id",
   spreadsheetId: "action_memory_spreadsheet_id",
   latestFileId: "action_memory_latest_file_id",
   lastRequestId: "action_memory_last_request_id",
@@ -104,6 +107,8 @@ function bridgeCommand(request) {
     case "health": return backendHealth_();
     case "push": return pushBackup_(request.payload || {});
     case "pull": return pullBackup_();
+    case "attachment_put": return putAttachment_(request.payload || {});
+    case "attachment_get": return getAttachment_(request.payload || {});
     default: throw new Error("不支援的後端動作");
   }
 }
@@ -116,6 +121,7 @@ function initializeBackend_() {
     if (current.initialized) return current;
 
     const folder = DriveApp.createFolder(ACTION_MEMORY.folderName);
+    const attachmentsFolder = folder.createFolder(ACTION_MEMORY.attachmentsFolderName);
     const spreadsheet = SpreadsheetApp.create(ACTION_MEMORY.spreadsheetName);
     DriveApp.getFileById(spreadsheet.getId()).moveTo(folder);
 
@@ -136,6 +142,7 @@ function initializeBackend_() {
     const properties = PropertiesService.getUserProperties();
     properties.setProperties({
       [PROPERTY_KEYS.folderId]: folder.getId(),
+      [PROPERTY_KEYS.attachmentsFolderId]: attachmentsFolder.getId(),
       [PROPERTY_KEYS.spreadsheetId]: spreadsheet.getId(),
       [PROPERTY_KEYS.revision]: "0",
       [PROPERTY_KEYS.createdAt]: new Date().toISOString()
@@ -144,6 +151,85 @@ function initializeBackend_() {
   } finally {
     lock.releaseLock();
   }
+}
+
+function ensureAttachmentsFolder_(properties) {
+  const savedId = properties.getProperty(PROPERTY_KEYS.attachmentsFolderId);
+  if (savedId) {
+    try {
+      const savedFolder = DriveApp.getFolderById(savedId);
+      savedFolder.getName();
+      return savedFolder;
+    } catch (error) {}
+  }
+  const parent = DriveApp.getFolderById(properties.getProperty(PROPERTY_KEYS.folderId));
+  const matches = parent.getFoldersByName(ACTION_MEMORY.attachmentsFolderName);
+  const folder = matches.hasNext() ? matches.next() : parent.createFolder(ACTION_MEMORY.attachmentsFolderName);
+  properties.setProperty(PROPERTY_KEYS.attachmentsFolderId, folder.getId());
+  return folder;
+}
+
+function putAttachment_(request) {
+  const health = backendHealth_();
+  if (!health.initialized) throw new Error("請先初始化 Google 後端");
+  const id = String(request.id || "");
+  const mimeType = String(request.mimeType || "");
+  const base64 = String(request.base64 || "");
+  const expectedChecksum = String(request.checksum || "").toLowerCase();
+  if (!/^[a-zA-Z0-9_-]{8,160}$/.test(id)) throw new Error("圖片附件 ID 不正確");
+  if (mimeType.indexOf("image/") !== 0) throw new Error("附件必須是圖片");
+  if (!base64) throw new Error("圖片內容是空的");
+
+  const bytes = Utilities.base64Decode(base64);
+  if (bytes.length > ACTION_MEMORY.maxAttachmentBytes) throw new Error("圖片超過 2 MB 上限");
+  const checksum = "sha256:" + sha256Bytes_(bytes);
+  if (checksum !== expectedChecksum) throw new Error("圖片內容與校驗碼不符");
+
+  const properties = PropertiesService.getUserProperties();
+  const folder = ensureAttachmentsFolder_(properties);
+  const extension = mimeType === "image/png" ? ".png" : ".jpg";
+  const fileName = id + extension;
+  const matches = folder.getFilesByName(fileName);
+  if (matches.hasNext()) {
+    const existing = matches.next();
+    const existingChecksum = "sha256:" + sha256Bytes_(existing.getBlob().getBytes());
+    if (existingChecksum !== checksum) throw new Error("雲端已有同 ID 但內容不同的圖片");
+    return { ok: true, duplicate: true, fileId: existing.getId(), checksum: checksum };
+  }
+
+  const blob = Utilities.newBlob(bytes, mimeType, fileName);
+  const file = folder.createFile(blob);
+  return { ok: true, fileId: file.getId(), checksum: checksum };
+}
+
+function getAttachment_(request) {
+  const health = backendHealth_();
+  if (!health.initialized) throw new Error("請先初始化 Google 後端");
+  const fileId = String(request.fileId || "");
+  if (!fileId) throw new Error("缺少圖片檔案 ID");
+  const properties = PropertiesService.getUserProperties();
+  const folder = ensureAttachmentsFolder_(properties);
+  const file = DriveApp.getFileById(fileId);
+  if (!fileIsInFolder_(file, folder.getId())) throw new Error("圖片不在拾記附件資料夾中");
+  const blob = file.getBlob();
+  const bytes = blob.getBytes();
+  if (bytes.length > ACTION_MEMORY.maxAttachmentBytes) throw new Error("雲端圖片超過 2 MB 上限");
+  return {
+    ok: true,
+    fileId: file.getId(),
+    name: file.getName(),
+    mimeType: blob.getContentType(),
+    base64: Utilities.base64Encode(bytes),
+    checksum: "sha256:" + sha256Bytes_(bytes)
+  };
+}
+
+function fileIsInFolder_(file, folderId) {
+  const parents = file.getParents();
+  while (parents.hasNext()) {
+    if (parents.next().getId() === folderId) return true;
+  }
+  return false;
 }
 
 function backendHealth_() {
@@ -256,6 +342,12 @@ function canonicalJsonValue_(value) {
 
 function sha256Hex_(text) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8)
+    .map(function (value) { return (value < 0 ? value + 256 : value).toString(16).padStart(2, "0"); })
+    .join("");
+}
+
+function sha256Bytes_(bytes) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes)
     .map(function (value) { return (value < 0 ? value + 256 : value).toString(16).padStart(2, "0"); })
     .join("");
 }

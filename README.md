@@ -8,6 +8,7 @@
 - 今日戰情：逾期、今天、等待、未來 7 天
 - 任務狀態、下一步、提醒、標籤與動態關聯
 - 不可覆寫的事件時間軸
+- 任務圖片附件：手機拍照／相簿選取、自動壓縮、本機預覽與刪除紀錄
 - 搜尋與篩選
 - 不寫入任務紀錄的隨手計算機（四則、百分比、正負號與複製結果）
 - JSON 校驗備份／合併／完整還原
@@ -18,7 +19,7 @@
 - 今天／明天／下週快速排程
 - 可還原的回收桶
 - GitHub Pages 自動部署工作流程
-- 可選的 Google Apps Script 後端：Google 授權後自動建立 Drive JSON 備份與 Sheets 版本索引
+- 可選的 Google Apps Script 後端：Google 授權後自動建立 Drive JSON／圖片備份與 Sheets 版本索引
 
 `/v0.1/` 保留第一階段 MVP 封存版；主目錄目前為 v0.3.1，持續演進。
 
@@ -37,7 +38,7 @@ npm.cmd run serve
 
 ## 可選 Google 後端
 
-網站的「設定與備份」內建 Apps Script 安裝精靈，可一鍵開啟新專案並複製單一 `Code.gs`。使用者執行 `setup()` 後會完成 Google 授權及 Drive／Sheets 儲存資源初始化；Google 基於安全規則仍要求使用者親自部署網頁應用程式。貼回 `/exec` 網址後，拾記會自動恢復連線；手機 Safari 可由 Google 授權頁按「回到拾記完成連線」直接返回。一鍵備份與還原都不會再開啟本機檔案選擇器。完整權限邊界另見 [`backend/apps-script/README.md`](./backend/apps-script/README.md)。
+網站的「設定與備份」內建 Apps Script 安裝精靈，可一鍵開啟新專案並複製單一 `Code.gs`。使用者執行 `setup()` 後會完成 Google 授權及 Drive／Sheets 儲存資源初始化；Google 基於安全規則仍要求使用者親自部署網頁應用程式。貼回 `/exec` 網址後，拾記會自動恢復連線；手機 Safari 可由 Google 授權頁按「回到拾記完成連線」直接返回。一鍵備份與還原都不會再開啟本機檔案選擇器。0.6.0 起，Google 完整備份會先逐張上傳並校驗圖片，再寫入含圖片索引的 JSON 快照；一般 JSON 匯出不內嵌圖片檔。完整權限邊界另見 [`backend/apps-script/README.md`](./backend/apps-script/README.md)。
 
 ## 隱私與提醒限制
 

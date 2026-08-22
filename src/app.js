@@ -26,8 +26,9 @@ import {
   tasksToCsv,
   toDateTimeLocal,
   validateBackup
-} from "./core.js?v=9";
+} from "./core.js?v=17";
 import {
+  addAttachment,
   addEvent,
   addRelation,
   addTask,
@@ -35,11 +36,22 @@ import {
   getAllData,
   getSetting,
   importData,
+  removeAttachment as deleteAttachmentRecord,
   removeRelation,
   setSetting,
+  updateAttachment,
   updateTask
-} from "./db.js?v=9";
-import { GOOGLE_SETUP_FILES, GoogleBackendBridge, googleControlState, isRetryableGoogleError, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=16";
+} from "./db.js?v=17";
+import {
+  MAX_ATTACHMENT_COUNT,
+  attachmentManifest,
+  base64ToBlob,
+  blobToBase64,
+  formatAttachmentSize,
+  prepareImageAttachment,
+  sha256Blob
+} from "./attachments.js?v=17";
+import { GOOGLE_SETUP_FILES, GoogleBackendBridge, googleControlState, isRetryableGoogleError, normalizeGoogleBackendUrl, summarizeGoogleSetup } from "./google-backend.js?v=17";
 import { calculatorReducer, createCalculatorState } from "./calculator.js?v=9";
 
 const GOOGLE_BACKEND_SETTING = "googleBackend";
@@ -49,6 +61,7 @@ const state = {
   tasks: [],
   relations: [],
   events: [],
+  attachments: [],
   view: "dashboard",
   filter: "open",
   query: "",
@@ -60,6 +73,9 @@ const state = {
   googleBridge: null,
   googleConnecting: false,
   googleBusy: false,
+  attachmentBusy: false,
+  attachmentUrls: new Map(),
+  attachmentViewerUrl: null,
   googleSetup: loadGoogleSetup()
 };
 
@@ -71,6 +87,17 @@ function element(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+function versionAtLeast(current, required) {
+  const left = String(current || "0").split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = String(required || "0").split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    if ((left[index] || 0) > (right[index] || 0)) return true;
+    if ((left[index] || 0) < (right[index] || 0)) return false;
+  }
+  return true;
 }
 
 function showToast(message) {
@@ -141,6 +168,7 @@ async function refresh() {
   state.tasks = data.tasks;
   state.relations = data.relations;
   state.events = data.events;
+  state.attachments = data.attachments;
   render();
 }
 
@@ -228,6 +256,8 @@ function createTaskCard(task) {
   meta.append(element("span", `meta-pill ${time.tone === "normal" ? "" : time.tone}`.trim(), time.text));
   if (task.importance === "focus") meta.append(element("span", "meta-pill", "焦點"));
   if (task.recurrence && task.recurrence !== "none") meta.append(element("span", "meta-pill", RECURRENCE_LABELS[task.recurrence]));
+  const attachmentCount = state.attachments.filter((attachment) => attachment.taskId === task.id).length;
+  if (attachmentCount) meta.append(element("span", "meta-pill", `圖片 ${attachmentCount}`));
   if (task.tags?.[0]) meta.append(element("span", "meta-pill", `#${task.tags[0]}`));
   body.append(meta);
   card.append(complete, body, element("span", "task-chevron", "›"));
@@ -389,9 +419,133 @@ function openTaskDialog(taskId) {
   $("#task-recurrence").value = task.recurrence || "none";
   $("#task-tags").value = (task.tags || []).join(", ");
   $("#save-state").textContent = `版本 ${task.version === null || task.version === undefined ? 1 : task.version}`;
+  renderTaskAttachments(task);
   renderTaskRelations(task);
   renderTimeline($("#task-timeline"), state.events.filter((item) => item.entityId === task.id));
   $("#task-dialog").showModal();
+}
+
+function clearAttachmentUrls() {
+  state.attachmentUrls.forEach((url) => URL.revokeObjectURL(url));
+  state.attachmentUrls.clear();
+}
+
+function setAttachmentHint(message, tone = "") {
+  const hint = $("#attachment-hint");
+  hint.textContent = message;
+  hint.classList.toggle("is-busy", tone === "busy");
+  hint.classList.toggle("is-error", tone === "error");
+}
+
+function renderTaskAttachments(task) {
+  clearAttachmentUrls();
+  const container = $("#attachment-list");
+  const attachments = state.attachments
+    .filter((attachment) => attachment.taskId === task.id)
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  container.replaceChildren();
+  if (!state.attachmentBusy) {
+    setAttachmentHint(attachments.length
+      ? `${attachments.length} 張；本機已保存，雲端圖示表示已納入 Google 備份。`
+      : "加入後會壓縮並保存在此裝置；Google 備份時會一併同步。");
+  }
+  if (!attachments.length) {
+    container.append(element("p", "attachment-empty", "尚未加入圖片"));
+    return;
+  }
+
+  attachments.forEach((attachment) => {
+    const item = element("article", "attachment-item");
+    const preview = element("button", "attachment-preview");
+    preview.type = "button";
+    preview.setAttribute("aria-label", `查看 ${attachment.name}`);
+    if (attachment.blob instanceof Blob) {
+      const url = URL.createObjectURL(attachment.blob);
+      state.attachmentUrls.set(attachment.id, url);
+      const image = document.createElement("img");
+      image.src = url;
+      image.alt = attachment.name;
+      preview.append(image);
+      preview.addEventListener("click", () => openAttachmentViewer(attachment));
+    } else {
+      preview.append(element("span", "attachment-placeholder", attachment.cloudFileId ? "☁ 雲端圖片\n請由 Google 還原下載" : "圖片檔未包含在 JSON 中"));
+      preview.addEventListener("click", () => showToast(attachment.cloudFileId ? "請執行 Google 還原下載圖片" : "這份 JSON 只有圖片索引，沒有圖片檔"));
+    }
+    const remove = element("button", "attachment-delete", "×");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `刪除 ${attachment.name}`);
+    remove.addEventListener("click", () => removeTaskAttachment(attachment));
+    const cloudMark = attachment.cloudFileId ? " · ☁" : "";
+    item.append(preview, remove, element("p", "attachment-meta", `${formatAttachmentSize(attachment.size)}${cloudMark}`));
+    container.append(item);
+  });
+}
+
+function openAttachmentViewer(attachment) {
+  if (!(attachment.blob instanceof Blob)) return;
+  if (state.attachmentViewerUrl) URL.revokeObjectURL(state.attachmentViewerUrl);
+  state.attachmentViewerUrl = URL.createObjectURL(attachment.blob);
+  $("#attachment-viewer-image").src = state.attachmentViewerUrl;
+  $("#attachment-viewer-caption").textContent = `${attachment.name} · ${formatAttachmentSize(attachment.size)}`;
+  $("#attachment-viewer").showModal();
+}
+
+function closeAttachmentViewer() {
+  const dialog = $("#attachment-viewer");
+  if (dialog.open) dialog.close();
+  $("#attachment-viewer-image").removeAttribute("src");
+  if (state.attachmentViewerUrl) URL.revokeObjectURL(state.attachmentViewerUrl);
+  state.attachmentViewerUrl = null;
+}
+
+async function addTaskAttachments(files) {
+  const taskId = $("#task-id").value;
+  const task = state.tasks.find((item) => item.id === taskId);
+  if (!task || state.attachmentBusy) return;
+  const currentCount = state.attachments.filter((item) => item.taskId === taskId).length;
+  const remaining = MAX_ATTACHMENT_COUNT - currentCount;
+  const selected = [...files].slice(0, Math.max(0, remaining));
+  $("#attachment-input").value = "";
+  if (!selected.length) return showToast(`每件事項最多 ${MAX_ATTACHMENT_COUNT} 張圖片`);
+
+  state.attachmentBusy = true;
+  $("#attachment-input").disabled = true;
+  const errors = [];
+  let added = 0;
+  for (const [index, file] of selected.entries()) {
+    setAttachmentHint(`正在壓縮第 ${index + 1}/${selected.length} 張圖片…`, "busy");
+    try {
+      const attachment = await prepareImageAttachment(file, taskId, createId("attachment"));
+      await addAttachment(attachment, makeEvent({
+        entityId: taskId,
+        type: "attachment_added",
+        summary: `加入圖片附件：${attachment.name}`
+      }));
+      added += 1;
+    } catch (error) {
+      errors.push(`${file.name || "圖片"}：${error.message}`);
+    }
+  }
+  state.attachmentBusy = false;
+  $("#attachment-input").disabled = false;
+  await refresh();
+  if ($("#task-dialog").open && $("#task-id").value === taskId) renderTaskAttachments(task);
+  if (errors.length) setAttachmentHint(`已加入 ${added} 張；${errors[0]}`, "error");
+  showToast(errors.length ? `完成 ${added} 張，${errors.length} 張失敗` : `已加入 ${added} 張圖片`);
+}
+
+async function removeTaskAttachment(attachment) {
+  if (!confirm(`刪除圖片「${attachment.name}」？雲端舊備份仍會保留它。`)) return;
+  await deleteAttachmentRecord(attachment.id, makeEvent({
+    entityId: attachment.taskId,
+    type: "attachment_removed",
+    summary: `刪除圖片附件：${attachment.name}`
+  }));
+  await refresh();
+  const task = state.tasks.find((item) => item.id === attachment.taskId);
+  if (task && $("#task-dialog").open) renderTaskAttachments(task);
+  renderTimeline($("#task-timeline"), state.events.filter((item) => item.entityId === attachment.taskId));
+  showToast("圖片已刪除，演化紀錄已保留");
 }
 
 function openLinkedTask() {
@@ -564,11 +718,16 @@ function downloadFile(filename, content, type) {
 }
 
 async function exportJson() {
-  await addEvent(makeEvent({ entityId: "system", type: "exported", summary: "匯出完整 JSON 備份" }));
+  await addEvent(makeEvent({ entityId: "system", type: "exported", summary: "匯出資料 JSON 備份" }));
   await refresh();
-  const backup = await createBackup({ tasks: state.tasks, relations: state.relations, events: state.events });
+  const backup = await createBackup({
+    tasks: state.tasks,
+    relations: state.relations,
+    events: state.events,
+    attachments: state.attachments.map(attachmentManifest)
+  });
   downloadFile(`拾記備份-${dateKey(new Date())}.json`, JSON.stringify(backup, null, 2), "application/json;charset=utf-8");
-  showToast("完整備份已匯出");
+  showToast(state.attachments.length ? "JSON 已匯出；圖片檔請使用 Google 完整備份" : "完整備份已匯出");
 }
 
 async function exportCsv() {
@@ -688,7 +847,7 @@ async function copyGoogleSetupFile(button) {
   const file = button.dataset.googleCopyFile;
   button.disabled = true;
   try {
-    const response = await fetch(`./backend/apps-script/${file}?v=14`, { cache: "no-store" });
+    const response = await fetch(`./backend/apps-script/${file}?v=17`, { cache: "no-store" });
     if (!response.ok) throw new Error(`讀取 ${file} 失敗`);
     await copyText(await response.text());
     if (!state.googleSetup.copiedFiles.includes(file)) state.googleSetup.copiedFiles.push(file);
@@ -811,12 +970,74 @@ async function reconnectGoogleBackendSilently() {
   }
 }
 
+async function uploadAttachmentsToGoogle() {
+  const total = state.attachments.length;
+  if (total && !versionAtLeast(state.googleBackend?.backendVersion, "0.6.0")) {
+    throw new Error("圖片備份需要 Code.gs 0.6.0；請在下方重新複製 Code.gs，貼回 Apps Script 並部署新版本");
+  }
+  for (const [index, attachment] of state.attachments.entries()) {
+    if (attachment.cloudFileId) continue;
+    if (!(attachment.blob instanceof Blob)) {
+      throw new Error(`圖片「${attachment.name}」只有索引、沒有本機檔案，無法完成備份`);
+    }
+    setGoogleBackendStatus(`正在備份圖片 ${index + 1}/${total}：${attachment.name}`);
+    const result = await requestGoogleBackend("attachment_put", {
+      id: attachment.id,
+      taskId: attachment.taskId,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      checksum: attachment.checksum,
+      base64: await blobToBase64(attachment.blob)
+    });
+    const next = { ...attachment, cloudFileId: result.fileId, updatedAt: new Date().toISOString() };
+    await updateAttachment(next);
+    state.attachments[index] = next;
+  }
+}
+
+async function downloadAttachmentsFromGoogle(manifests) {
+  const localById = new Map(state.attachments.map((attachment) => [attachment.id, attachment]));
+  const hydrated = [];
+  const failures = [];
+  for (const [index, manifest] of manifests.entries()) {
+    const local = localById.get(manifest.id);
+    if (local?.blob instanceof Blob && local.checksum === manifest.checksum) {
+      hydrated.push({ ...manifest, blob: local.blob });
+      continue;
+    }
+    if (!manifest.cloudFileId) {
+      hydrated.push(manifest);
+      failures.push(`${manifest.name}：備份中沒有雲端檔案 ID`);
+      continue;
+    }
+    try {
+      setGoogleBackendStatus(`正在還原圖片 ${index + 1}/${manifests.length}：${manifest.name}`);
+      const result = await requestGoogleBackend("attachment_get", { fileId: manifest.cloudFileId });
+      const blob = base64ToBlob(result.base64, result.mimeType || manifest.mimeType);
+      const checksum = await sha256Blob(blob);
+      if (checksum !== manifest.checksum || result.checksum !== manifest.checksum) throw new Error("圖片校驗失敗");
+      hydrated.push({ ...manifest, mimeType: blob.type, size: blob.size, blob });
+    } catch (error) {
+      hydrated.push(manifest);
+      failures.push(`${manifest.name}：${error.message}`);
+    }
+  }
+  return { attachments: hydrated, failures };
+}
+
 async function backupToGoogle() {
   state.googleBusy = "backup";
   applyGoogleHealth(state.googleBackend);
-  setGoogleBackendStatus("正在把目前資料以單一 JSON 備份到 Google…");
+  setGoogleBackendStatus("正在準備 Google 完整備份…");
   try {
-    const backup = await createBackup({ tasks: state.tasks, relations: state.relations, events: state.events });
+    await uploadAttachmentsToGoogle();
+    const backup = await createBackup({
+      tasks: state.tasks,
+      relations: state.relations,
+      events: state.events,
+      attachments: state.attachments.map(attachmentManifest)
+    });
+    setGoogleBackendStatus("圖片已同步，正在建立資料快照…");
     const result = await requestGoogleBackend("push", {
       backup,
       backupJson: JSON.stringify(backup),
@@ -830,7 +1051,7 @@ async function backupToGoogle() {
       throw new Error(`雲端已有版本 ${result.revision}，本次未覆寫；請先還原雲端資料，再重新備份。`);
     }
     await saveGoogleState(result);
-    showToast(`已備份 ${state.tasks.length} 件事項到 Google（版本 ${result.revision}）`);
+    showToast(`已備份 ${state.tasks.length} 件事項、${state.attachments.length} 張圖片（版本 ${result.revision}）`);
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
   } finally {
@@ -849,7 +1070,8 @@ async function restoreFromGoogle() {
     const validation = await validateBackup(result.backup);
     if (!validation.valid) throw new Error(validation.reason);
     const cloudTasks = result.backup.payload.tasks.length;
-    if (!confirm(`要以 Google 版本 ${result.revision} 的 ${cloudTasks} 件事項完整還原嗎？目前本機資料會被取代。`)) {
+    const manifests = result.backup.payload.attachments || [];
+    if (!confirm(`要以 Google 版本 ${result.revision} 的 ${cloudTasks} 件事項、${manifests.length} 張圖片完整還原嗎？目前本機資料會被取代。`)) {
       setGoogleBackendStatus("已取消還原；本機資料沒有變更。");
       return;
     }
@@ -860,11 +1082,13 @@ async function restoreFromGoogle() {
       summary: `一鍵還原 Google 備份版本 ${result.revision}`,
       correlationId: createId("google-restore")
     });
-    await importData(result.backup.payload, "replace", eventRecord);
+    const downloaded = await downloadAttachmentsFromGoogle(manifests);
+    await importData({ ...result.backup.payload, attachments: downloaded.attachments }, "replace", eventRecord);
     await saveGoogleState(result);
     await refresh();
-    setGoogleBackendStatus(`Google 版本 ${result.revision} 已還原，共 ${cloudTasks} 件事項。`);
-    showToast(`已從 Google 還原 ${cloudTasks} 件事項`);
+    const suffix = downloaded.failures.length ? `；${downloaded.failures.length} 張圖片未能下載，可稍後再還原重試。` : `、${manifests.length} 張圖片。`;
+    setGoogleBackendStatus(`Google 版本 ${result.revision} 已還原，共 ${cloudTasks} 件事項${suffix}`, downloaded.failures.length > 0);
+    showToast(downloaded.failures.length ? `事項已還原，${downloaded.failures.length} 張圖片待重試` : `已還原 ${cloudTasks} 件事項與 ${manifests.length} 張圖片`);
   } catch (error) {
     setGoogleBackendStatus(error.message, true);
   } finally {
@@ -974,6 +1198,14 @@ function bindEvents() {
 
   $("#task-form").addEventListener("submit", submitTask);
   $("#close-task-button").addEventListener("click", () => $("#task-dialog").close());
+  $("#task-dialog").addEventListener("close", clearAttachmentUrls);
+  $("#attachment-input").addEventListener("change", (event) => addTaskAttachments(event.target.files));
+  $("#close-attachment-viewer").addEventListener("click", closeAttachmentViewer);
+  $("#attachment-viewer").addEventListener("close", () => {
+    $("#attachment-viewer-image").removeAttribute("src");
+    if (state.attachmentViewerUrl) URL.revokeObjectURL(state.attachmentViewerUrl);
+    state.attachmentViewerUrl = null;
+  });
   $("#add-relation-button").addEventListener("click", createRelationForCurrentTask);
   $("#delete-task-button").addEventListener("click", deleteCurrentTask);
   $("#calendar-button").addEventListener("click", exportCalendar);

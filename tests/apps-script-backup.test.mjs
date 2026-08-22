@@ -12,6 +12,51 @@ function createAppsScriptRuntime() {
   const files = new Map();
   const spreadsheets = new Map();
   const nextId = (prefix) => `${prefix}-${++sequence}`;
+  const iterator = (items) => {
+    let index = 0;
+    return { hasNext: () => index < items.length, next: () => items[index++] };
+  };
+
+  function makeBlob(value, mimeType = "text/plain", name = "") {
+    const bytes = Buffer.isBuffer(value) ? value : Array.isArray(value) ? Buffer.from(value) : Buffer.from(String(value), "utf8");
+    return {
+      getBytes: () => [...bytes],
+      getDataAsString: () => bytes.toString("utf8"),
+      getContentType: () => mimeType,
+      getName: () => name
+    };
+  }
+
+  function createFolder(name, parent = null) {
+    const folder = {
+      id: nextId("folder"), name, parent, childFolders: [], childFiles: [],
+      getId() { return this.id; },
+      getName() { return this.name; },
+      createFolder(childName) {
+        const child = createFolder(childName, this);
+        this.childFolders.push(child);
+        return child;
+      },
+      getFoldersByName(childName) { return iterator(this.childFolders.filter((item) => item.name === childName)); },
+      getFilesByName(fileName) { return iterator(this.childFiles.filter((item) => item.fileName === fileName)); },
+      createFile(fileNameOrBlob, content) {
+        const blob = typeof fileNameOrBlob === "string" ? makeBlob(content, "text/plain", fileNameOrBlob) : fileNameOrBlob;
+        const fileName = typeof fileNameOrBlob === "string" ? fileNameOrBlob : blob.getName();
+        const file = {
+          id: nextId("file"), fileName, blob, parent: this,
+          getId() { return this.id; },
+          getName() { return this.fileName; },
+          getBlob() { return this.blob; },
+          getParents() { return iterator([this.parent]); }
+        };
+        this.childFiles.push(file);
+        files.set(file.id, file);
+        return file;
+      }
+    };
+    folders.set(folder.id, folder);
+    return folder;
+  }
 
   class Sheet {
     constructor(name) { this.name = name; this.rows = []; }
@@ -40,25 +85,7 @@ function createAppsScriptRuntime() {
   };
 
   const DriveApp = {
-    createFolder(name) {
-      const folder = {
-        id: nextId("folder"),
-        name,
-        getId() { return this.id; },
-        getName() { return this.name; },
-        createFile(fileName, content) {
-          const file = {
-            id: nextId("file"), fileName, content,
-            getId() { return this.id; },
-            getBlob() { return { getDataAsString: () => this.content }; }
-          };
-          files.set(file.id, file);
-          return file;
-        }
-      };
-      folders.set(folder.id, folder);
-      return folder;
-    },
+    createFolder,
     getFolderById(id) { return folders.get(id); },
     getFileById(id) {
       if (files.has(id)) return files.get(id);
@@ -79,8 +106,13 @@ function createAppsScriptRuntime() {
   const Utilities = {
     Charset: { UTF_8: "UTF-8" },
     DigestAlgorithm: { SHA_256: "SHA_256" },
-    computeDigest(_algorithm, text) { return [...createHash("sha256").update(text, "utf8").digest()]; },
-    newBlob(text) { return { getBytes: () => [...Buffer.from(text, "utf8")] }; }
+    computeDigest(_algorithm, value) {
+      const bytes = Array.isArray(value) ? Buffer.from(value) : Buffer.from(String(value), "utf8");
+      return [...createHash("sha256").update(bytes).digest()];
+    },
+    newBlob: makeBlob,
+    base64Decode: (value) => [...Buffer.from(value, "base64")],
+    base64Encode: (value) => Buffer.from(value).toString("base64")
   };
 
   const context = {
@@ -93,7 +125,7 @@ function createAppsScriptRuntime() {
     HtmlService: {},
     console
   };
-  const factory = new Function(...Object.keys(context), `${codeGs}\nreturn { setup, pushBackup_, pullBackup_ };`);
+  const factory = new Function(...Object.keys(context), `${codeGs}\nreturn { setup, pushBackup_, pullBackup_, putAttachment_, getAttachment_ };`);
   return { api: factory(...Object.values(context)), files };
 }
 
@@ -128,4 +160,26 @@ test("Apps Script initializes, backs up, restores, and deduplicates a retry", ()
   const pulled = runtime.api.pullBackup_();
   assert.deepEqual(pulled.backup, backup);
   assert.equal(pulled.revision, 1);
+});
+
+test("Apps Script uploads and restores a checksum-verified image attachment", () => {
+  const runtime = createAppsScriptRuntime();
+  runtime.api.setup();
+  const bytes = Buffer.from("fake-jpeg-content", "utf8");
+  const checksum = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  const request = {
+    id: "attachment_test-1234",
+    mimeType: "image/jpeg",
+    base64: bytes.toString("base64"),
+    checksum
+  };
+
+  const uploaded = runtime.api.putAttachment_(request);
+  assert.equal(uploaded.ok, true);
+  assert.equal(runtime.api.putAttachment_(request).duplicate, true);
+
+  const downloaded = runtime.api.getAttachment_({ fileId: uploaded.fileId });
+  assert.equal(downloaded.base64, request.base64);
+  assert.equal(downloaded.checksum, checksum);
+  assert.equal(downloaded.mimeType, "image/jpeg");
 });

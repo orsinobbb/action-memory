@@ -1,6 +1,6 @@
 const DB_NAME = "action-memory";
-const DB_VERSION = 1;
-const STORES = ["tasks", "relations", "events", "settings"];
+const DB_VERSION = 2;
+const STORES = ["tasks", "relations", "events", "attachments", "settings"];
 
 let databasePromise;
 
@@ -33,6 +33,11 @@ export function openDatabase() {
           store.createIndex("at", "at", { unique: false });
         }
         if (!db.objectStoreNames.contains("settings")) db.createObjectStore("settings", { keyPath: "key" });
+        if (!db.objectStoreNames.contains("attachments")) {
+          const store = db.createObjectStore("attachments", { keyPath: "id" });
+          store.createIndex("taskId", "taskId", { unique: false });
+          store.createIndex("createdAt", "createdAt", { unique: false });
+        }
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
@@ -52,8 +57,13 @@ export async function getById(storeName, id) {
 }
 
 export async function getAllData() {
-  const [tasks, relations, events] = await Promise.all([getAll("tasks"), getAll("relations"), getAll("events")]);
-  return { tasks, relations, events };
+  const [tasks, relations, events, attachments] = await Promise.all([
+    getAll("tasks"),
+    getAll("relations"),
+    getAll("events"),
+    getAll("attachments")
+  ]);
+  return { tasks, relations, events, attachments };
 }
 
 export async function getSetting(key) {
@@ -83,6 +93,29 @@ export async function addTask(task, event) {
   await transactionDone(transaction);
 }
 
+export async function addAttachment(attachment, event) {
+  const db = await openDatabase();
+  const transaction = db.transaction(["attachments", "events"], "readwrite");
+  transaction.objectStore("attachments").add(attachment);
+  transaction.objectStore("events").add(event);
+  await transactionDone(transaction);
+}
+
+export async function updateAttachment(attachment) {
+  const db = await openDatabase();
+  const transaction = db.transaction("attachments", "readwrite");
+  transaction.objectStore("attachments").put(attachment);
+  await transactionDone(transaction);
+}
+
+export async function removeAttachment(attachmentId, event) {
+  const db = await openDatabase();
+  const transaction = db.transaction(["attachments", "events"], "readwrite");
+  transaction.objectStore("attachments").delete(attachmentId);
+  transaction.objectStore("events").add(event);
+  await transactionDone(transaction);
+}
+
 export async function updateTask(task, event) {
   const db = await openDatabase();
   const transaction = db.transaction(["tasks", "events"], "readwrite");
@@ -107,10 +140,13 @@ export async function completeRecurringTask(task, completionEvent, nextTask, nex
 export async function removeTask(taskId, event) {
   const db = await openDatabase();
   const existingRelations = await getAll("relations");
-  const transaction = db.transaction(["tasks", "relations", "events"], "readwrite");
+  const existingAttachments = await getAll("attachments");
+  const transaction = db.transaction(["tasks", "relations", "events", "attachments"], "readwrite");
   transaction.objectStore("tasks").delete(taskId);
   const relationStore = transaction.objectStore("relations");
   existingRelations.filter((item) => item.fromId === taskId || item.toId === taskId).forEach((item) => relationStore.delete(item.id));
+  const attachmentStore = transaction.objectStore("attachments");
+  existingAttachments.filter((item) => item.taskId === taskId).forEach((item) => attachmentStore.delete(item.id));
   transaction.objectStore("events").add(event);
   await transactionDone(transaction);
 }
@@ -134,9 +170,11 @@ export async function removeRelation(relationId, event) {
 export async function importData(payload, mode, importEvent) {
   const db = await openDatabase();
   const currentTasks = mode === "merge" ? await getAll("tasks") : [];
+  const currentAttachments = mode === "merge" ? await getAll("attachments") : [];
   const currentTaskMap = new Map(currentTasks.map((task) => [task.id, task]));
-  const transaction = db.transaction(["tasks", "relations", "events"], "readwrite");
-  const stores = Object.fromEntries(["tasks", "relations", "events"].map((name) => [name, transaction.objectStore(name)]));
+  const currentAttachmentMap = new Map(currentAttachments.map((attachment) => [attachment.id, attachment]));
+  const transaction = db.transaction(["tasks", "relations", "events", "attachments"], "readwrite");
+  const stores = Object.fromEntries(["tasks", "relations", "events", "attachments"].map((name) => [name, transaction.objectStore(name)]));
 
   if (mode === "replace") Object.values(stores).forEach((store) => store.clear());
 
@@ -151,6 +189,15 @@ export async function importData(payload, mode, importEvent) {
   }
   for (const relation of payload.relations) stores.relations.put(relation);
   for (const event of payload.events) stores.events.put(event);
+  for (const attachment of payload.attachments || []) {
+    if (mode === "replace") stores.attachments.put(attachment);
+    else {
+      const current = currentAttachmentMap.get(attachment.id);
+      if (!current || String(attachment.updatedAt || "") >= String(current.updatedAt || "")) {
+        stores.attachments.put(current?.blob && !attachment.blob ? { ...attachment, blob: current.blob } : attachment);
+      }
+    }
+  }
   stores.events.put(importEvent);
   await transactionDone(transaction);
 }

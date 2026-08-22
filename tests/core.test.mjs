@@ -95,6 +95,20 @@ test("相同 JSON 內容不因物件欄位順序不同而產生不同校驗碼",
   assert.equal(first.checksum, second.checksum);
 });
 
+test("新版備份校驗包含圖片附件索引且仍接受舊備份", async () => {
+  const base = { tasks: [], relations: [], events: [] };
+  const legacy = await createBackup(base);
+  assert.equal((await validateBackup(legacy)).valid, true);
+
+  const withAttachment = await createBackup({
+    ...base,
+    attachments: [{ id: "attachment_1", taskId: "task_1", checksum: "sha256:image" }]
+  });
+  assert.equal((await validateBackup(withAttachment)).valid, true);
+  withAttachment.payload.attachments[0].checksum = "sha256:changed";
+  assert.equal((await validateBackup(withAttachment)).valid, false);
+});
+
 test("匯入預覽區分新增、較新與不變", () => {
   const current = { tasks: [task({ id: "same", version: 2 }), task({ id: "older", version: 1 })] };
   const incoming = [task({ id: "same", version: 2 }), task({ id: "older", version: 3 }), task({ id: "new", version: 1 })];

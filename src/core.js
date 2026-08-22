@@ -321,11 +321,15 @@ export function restoreTaskFromTrash(task, now = new Date()) {
 }
 
 export function backupPayload(data) {
-  return {
+  const payload = {
     tasks: [...data.tasks].sort((a, b) => a.id.localeCompare(b.id)),
     relations: [...data.relations].sort((a, b) => a.id.localeCompare(b.id)),
     events: [...data.events].sort((a, b) => a.id.localeCompare(b.id))
   };
+  if (Array.isArray(data.attachments)) {
+    payload.attachments = [...data.attachments].sort((a, b) => a.id.localeCompare(b.id));
+  }
+  return payload;
 }
 
 function canonicalJsonValue(value) {
@@ -355,6 +359,9 @@ export async function validateBackup(backup) {
   if (!backup || backup.schemaVersion !== SCHEMA_VERSION || !backup.payload) return { valid: false, reason: "不支援的備份格式或版本" };
   const { tasks, relations, events } = backup.payload;
   if (![tasks, relations, events].every(Array.isArray)) return { valid: false, reason: "備份缺少必要資料集合" };
+  if (backup.payload.attachments !== undefined && !Array.isArray(backup.payload.attachments)) {
+    return { valid: false, reason: "備份的圖片附件格式不正確" };
+  }
   const sortedPayload = backupPayload(backup.payload);
   const canonicalChecksum = `sha256:${await sha256(JSON.stringify(canonicalJsonValue(sortedPayload)))}`;
   const legacyChecksum = `sha256:${await sha256(JSON.stringify(sortedPayload))}`;

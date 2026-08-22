@@ -8,7 +8,7 @@
     <title>拾記｜代辦記憶庫</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=14" />
+    <link rel="stylesheet" href="./styles.css?v=17" />
   </head>
   <body>
     <div class="app-shell">
@@ -215,6 +215,16 @@
           <input id="task-tags" maxlength="180" placeholder="用逗號分隔，例如：工作, 月報" />
         </label>
 
+        <section class="detail-section attachment-section">
+          <div class="section-heading compact">
+            <div><p class="eyebrow">影像記憶</p><h3>圖片附件</h3></div>
+            <label class="secondary-button attachment-picker-button" for="attachment-input">＋ 拍照或選照片</label>
+          </div>
+          <input class="visually-hidden" id="attachment-input" type="file" accept="image/*" multiple />
+          <p class="attachment-hint" id="attachment-hint">加入後會壓縮並保存在此裝置；Google 備份時會一併同步。</p>
+          <div class="attachment-grid" id="attachment-list"></div>
+        </section>
+
         <section class="detail-section" id="relation-section">
           <div class="section-heading compact">
             <div><p class="eyebrow">動態節點</p><h3>關聯</h3></div>
@@ -245,6 +255,14 @@
           <button class="danger-button" id="delete-task-button" type="button">移到回收桶</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog class="modal attachment-viewer" id="attachment-viewer">
+      <div class="attachment-viewer-card">
+        <button class="attachment-viewer-close" id="close-attachment-viewer" aria-label="關閉圖片" type="button">×</button>
+        <img id="attachment-viewer-image" alt="任務附件預覽" />
+        <p id="attachment-viewer-caption"></p>
+      </div>
     </dialog>
 
     <dialog class="modal" id="linked-task-dialog">
@@ -301,7 +319,7 @@
           <h3>本機資料</h3>
           <p>資料保存在此瀏覽器的 IndexedDB。清除網站資料前，請先匯出備份。</p>
           <div class="button-stack">
-            <button class="secondary-button" id="export-json-button" type="button">匯出完整 JSON 備份</button>
+            <button class="secondary-button" id="export-json-button" type="button">匯出資料 JSON</button>
             <button class="secondary-button" id="export-csv-button" type="button">匯出任務 CSV</button>
             <label class="secondary-button file-button">匯入 JSON 備份<input id="import-json-input" type="file" accept="application/json,.json" /></label>
           </div>
@@ -361,7 +379,7 @@
             <button class="secondary-button" id="google-restore-button" type="button" disabled>尚無雲端備份可還原</button>
             <a class="secondary-button backend-sheet-link" id="google-sheet-link" href="#" target="_blank" rel="noopener" hidden>開啟備份索引表</a>
           </div>
-          <p class="settings-footnote">雲端操作不會要求選擇 JSON 檔；本機匯入／匯出只保留作為手動備援。</p>
+          <p class="settings-footnote">Google 備份會保存資料與圖片；本機 JSON 只保存資料及圖片索引，不內嵌圖片檔。</p>
         </section>
         <section class="settings-section">
           <h3>提醒</h3>
@@ -386,6 +404,6 @@
       <div class="empty-state"><span>✓</span><p></p></div>
     </template>
 
-    <script type="module" src="./src/app.js?v=16"></script>
+    <script type="module" src="./src/app.js?v=17"></script>
   </body>
 </html>
